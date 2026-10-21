@@ -1,9 +1,9 @@
-# fw-uart16550 design (draft for review)
+# fw-uart16550 design
 
-```{admonition} Draft
-:class: warning
-Written 2026-10-21 for review (plan step 1). The decisions that still
-need an answer are in {ref}`open-issues`. None of this is implemented.
+```{admonition} Status
+:class: note
+Written 2026-10-21 (plan step 1); open issues answered the same day
+({ref}`open-issues`). None of this is implemented yet.
 Plan, status and step order: {doc}`plan`.
 ```
 
@@ -20,6 +20,19 @@ Plan, status and step order: {doc}`plan`.
   plan §6.2)
 - **Repository and names:** `fw-uart16550`, package `org.fwip.uart16550`,
   SV prefix `fw_uart16550_`. (plan D8)
+- **FIFO:** a new library class `fw_fifo` in fw-hdl (packed storage, one
+  writer per side, count, peek, flush), not an in-repo class and not an
+  extension of `fw_channel`, which does not lower. (OI-1, §3.4)
+- **Quirks:** copy U2B0's visible register and pin behaviour; do the 16550
+  thing for its defects, each with a named bench rule (§5). (OI-2)
+- **FIFO flush:** the one allowed two-writer case: the host writes the
+  reader's pointer, and the host's priority wins over the reading process
+  in the same clock. (OI-4, §3.2)
+- **Reset:** synchronous `wb_rst_i` in the model. (OI-5)
+- **Kit, VIP, example:** tx error injection in a VIP-only driver core; a
+  modem agent in fwvip-uart unless fwvip-gpio fits; one shared baud tick
+  core (K2) in step 2; the tx core holds characters during break;
+  `fwvip-example-uart16550` unused. (OI-6 to OI-10)
 ```
 
 ## 1. Goal
@@ -127,12 +140,24 @@ single-writer values:
 | MSR deltas | modem process sets, MSR read acks (toggle pair) | | |
 | Timeout counter | timeout process; reload on push/pop seen through the pointers | | TI = `count = 0` and `rx_count ≠ 0` |
 
-A FIFO flush (FCR[1], FCR[2]) is a host write. It must not write the other
-side's pointer, so it is a request flag the owning process acknowledges
-(set `rd_ptr = wr_ptr` from the side that owns `rd_ptr`, which is the host
-for RX and the tx process for TX). This costs a request/ack pair per FIFO.
-OI-4 asks whether that is acceptable or whether a flush should be the one
-allowed two-writer case, with a stated priority.
+**The one exception is a FIFO flush** (FCR[1], FCR[2]; OI-4). A flush
+empties the FIFO by setting `rd_ptr = wr_ptr`:
+
+- **RX flush:** the host owns RX `rd_ptr`, so this is a single-writer
+  write. A character pushed in the same clock survives the flush, as if it
+  had arrived just after it. The host also sets `rx_bad_rd = rx_bad_wr` and
+  acks the sticky LSR bits.
+- **TX flush:** TX `rd_ptr` belongs to the tx process. The host writes it
+  too, and **the host wins** in the same clock. A pop in that clock is
+  overridden; the character it took is already in the tx core and is sent,
+  as in U2B0. The priority is the lowering's own (bridge/host context 2 over
+  model process 0, `translate.py:244-252`), so it needs no extra logic, only
+  the warning the lowering prints for a two-writer bit, which this design
+  expects for TX `rd_ptr` and nowhere else.
+
+(Setting the host-owned `wr_ptr = rd_ptr` instead would avoid the second
+writer, but a same-clock pop would then leave `rd_ptr` one ahead of
+`wr_ptr`: a count of −1.)
 
 Toggle pairs cost one flop per side instead of one flop, but they make the
 same-clock set and clear cases exact by construction, and the relation
@@ -163,19 +188,35 @@ it, and its `m_q[$]` queue operations are rejected inside a process
 ZU1). Packed vectors with run-time indexes do lower (`translate.py:1167-1181,
 1462-1474`).
 
-So each FIFO is a small class in this repo, `fw_uart16550_fifo #(W, DEPTH)`:
-`bit [DEPTH-1:0][W-1:0] mem`, two pointers one bit wider than the index, and
-methods that touch only one side (`push`/`wr_ptr` for the writer,
-`head`/`pop`/`rd_ptr` for the reader), so the single-writer rule of §3.2
-holds by construction. It lowers to flops plus a read mux, like `raminfr`
-on iCE40, which keeps the storage comparison like for like (D4 (a)).
+So the FIFO is a **new fw-hdl library class, `fw_fifo #(type T, int
+DEPTH)`** (decided, OI-1), next to `fw_channel` in `src/std/`. Any fw-hdl
+design with a FIFO it must count, peek or flush needs it, and it has to
+lower, which `fw_channel` does not.
 
-This answers D3 differently from the plan's recommendation (extend
-`fw_channel` into `fw_fifo`). `fw_channel` is a Kahn channel by design (no
-peek, no count, no flush), and the 16550 needs all three. A library
-`fw_fifo` can be promoted from this class once a second design needs it.
-ZU1 (unpacked arrays) and ZU2/ZU3 (memory inference, kept leaf) stay step
-10 options.
+- **Storage:** `bit [DEPTH-1:0][$bits(T)-1:0] mem` (packed, so it lowers
+  today), two pointers one bit wider than the index.
+- **Writer side:** `push(T)`, `full()`, `wr_ptr`. **Reader side:**
+  `head()` (peek), `pop()`, `empty()`, `rd_ptr`. `count()` is a relation
+  over the two pointers. Each side writes only its own pointer, so the
+  single-writer rule of §3.2 holds by construction.
+- **`flush()`** sets `rd_ptr = wr_ptr`. Called from the reader side it is a
+  single-writer write. Called from the writer side it is a second writer of
+  `rd_ptr`, and the caller must have the higher lowering priority (as the
+  host does here); the class documents this rather than hiding it.
+- **Overflow:** `push` when full is a caller error. The class asserts it in
+  simulation and ignores the push in RTL (it does not overwrite, unlike
+  `raminfr`, U14/U15).
+- **Simulation form:** the same packed storage (not a queue), so `tlm` and
+  the lowered RTL hold the same state.
+- **Tests:** a fw-hdl unit test (both sides in separate processes,
+  same-clock push and pop, flush from either side, full and empty) and a
+  lowering test (the lowered form against the class), in fw-hdl's own
+  clone, per the fw-i2c rule (synthesis-plan §8.4). Built in step 7 when
+  the model needs it (plan §6.1, ZU9).
+
+It lowers to flops plus a read mux, like `raminfr` on iCE40, which keeps
+the storage comparison like for like (OI-3 (a)). ZU1 (unpacked arrays) and
+ZU2/ZU3 (memory inference, kept leaf) stay step 10 options.
 
 The RX error flags are not stored per entry for LSR[7]. Each entry keeps
 its 3 flags for LSR.PE/FE/BI of the head character (U2B0 does the same), and
@@ -267,8 +308,8 @@ and nowhere else.
 
 Not copying costs nothing in fairness of area only if the fix is not
 larger than the bug. U6 (`block_cnt`, an 8-bit counter) and the U20/U21
-latches are removed, which saves area; the flush handshakes of §3.2 and
-OI-4 add some. Both are reported in the attribution (plan §6.2).
+latches are removed, which saves area; the toggle pairs of §3.2 add
+some. Both are reported in the attribution (plan §6.2).
 
 ### 5.1 Lessons carried from fw-i2c
 
@@ -366,21 +407,20 @@ attribution.
 
 | ID | Issue | Proposed answer |
 |---|---|---|
-| OI-1 (D3) | FIFO: extend `fw_channel` into `fw_fifo`, or keep the FIFO plain? | **Neither as planned:** `fw_channel` does not lower (§3.4). A packed-storage FIFO class in this repo with single-writer sides; LSR[7] from bad-entry counters; promote to fw-hdl later |
-| OI-2 | Which quirks to copy (§5 table) | As the §5 table: copy visible register and pin behaviour (U1–U4, U7, U8, U9, U12, U22, U23, U25), do the 16550 thing for defects with a named rule each. LCR or DL changed mid-character: the kit applies it at the next character (K1); U2B0 applies it at once; rule `lcr_midchar`, tested only under Q5 |
-| OI-3 (D4) | FIFO storage comparison basis | (a) flops, like for like, as the headline; (b) block RAM both sides as a measurement (needs a sync-read `raminfr` branch on the fork) |
-| OI-4 | FIFO flush when the other side owns the pointer | A request/ack pair (single-writer kept). Alternative: let flush be a two-writer write with stated priority, which the lowering supports with a warning |
-| OI-5 | Reset | Synchronous `wb_rst_i` in the model (§3.6) |
-| OI-6 (D5) | Where tx error injection lives (K6) | A VIP-only driver core in fw-proto-uart outside `xtor-core` (a txd override mux in the tx xtor wrapper, driven from `xtor_if` tasks) |
-| OI-7 (D6) | Modem lines in the VIP | A small modem agent in fwvip-uart (four inputs, two outputs, with an edge monitor). Check fwvip-gpio in step 3 first, and use it if its API fits |
-| OI-8 (D7) | `fwvip-example-uart16550` | Leave unused for now |
-| OI-9 | K2 shared baud tick: a kit change across all three cores (medium) | Do it in step 2: one divider for both directions is U2B0's structure, and two private dividers would cost about 2 × 16 FF and their counters in the comparison |
-| OI-10 | Break while characters are queued (U2B0 sends them invisibly) | The kit tx core holds characters during break (K4); rule `break_queue` |
+| OI-1 (D3) | FIFO: extend `fw_channel` into `fw_fifo`, or keep the FIFO plain? | `fw_channel` does not lower (§3.4). Proposed: a packed-storage FIFO class in this repo with single-writer sides; LSR[7] from bad-entry counters. **Decided** 2026-10-21: a new fw-hdl library class `fw_fifo` (§3.4). `fw_channel` does not lower; an in-repo class was proposed and rejected in favour of the library |
+| OI-2 | Which quirks to copy (§5 table) | As the §5 table: copy visible register and pin behaviour (U1–U4, U7, U8, U9, U12, U22, U23, U25), do the 16550 thing for defects with a named rule each. LCR or DL changed mid-character: the kit applies it at the next character (K1); U2B0 applies it at once; rule `lcr_midchar`, tested only under Q5. **Decided** 2026-10-21: as proposed (§5 table) |
+| OI-3 (D4) | FIFO storage comparison basis | (a) flops, like for like, as the headline; (b) block RAM both sides as a measurement (needs a sync-read `raminfr` branch on the fork). **Decided** 2026-10-21: as proposed |
+| OI-4 | FIFO flush when the other side owns the pointer | Proposed: a request/ack pair (single-writer kept), or a two-writer write with stated priority. **Decided** 2026-10-21: two writers with a stated priority; host wins (§3.2) |
+| OI-5 | Reset | Synchronous `wb_rst_i` in the model (§3.6). **Decided** 2026-10-21: synchronous `wb_rst_i` (§3.6) |
+| OI-6 (D5) | Where tx error injection lives (K6) | A VIP-only driver core in fw-proto-uart outside `xtor-core` (a txd override mux in the tx xtor wrapper, driven from `xtor_if` tasks). **Decided** 2026-10-21: as proposed |
+| OI-7 (D6) | Modem lines in the VIP | A small modem agent in fwvip-uart (four inputs, two outputs, with an edge monitor). Check fwvip-gpio in step 3 first, and use it if its API fits. **Decided** 2026-10-21: as proposed |
+| OI-8 (D7) | `fwvip-example-uart16550` | Leave unused for now. **Decided** 2026-10-21: as proposed |
+| OI-9 | K2 shared baud tick: a kit change across all three cores (medium) | Do it in step 2: one divider for both directions is U2B0's structure, and two private dividers would cost about 2 × 16 FF and their counters in the comparison. **Decided** 2026-10-21: as proposed |
+| OI-10 | Break while characters are queued (U2B0 sends them invisibly) | The kit tx core holds characters during break (K4); rule `break_queue`. **Decided** 2026-10-21: as proposed |
 
 ## 9. Opportunities
 
-- The single-writer FIFO pattern (§3.2) is general. If it lowers well it is
-  the shape of `fw_fifo` and a candidate rule for the lowering itself
+- The single-writer FIFO pattern (§3.2) is the shape of `fw_fifo`, and a candidate rule for the lowering itself
   (detect a count written by two processes and split it).
 - LSR[7] by counters instead of an OR over the FIFO: a relation that is
   cheaper than the reference's state.
@@ -389,13 +429,10 @@ attribution.
 - The kit fixes (K1, K2, K4) make fw-proto-uart usable for any 16550-style
   UART, not only this one.
 
-## 10. What I need from you
+## 10. Answers (2026-10-21)
 
-1. OI-1: accept the in-repo packed FIFO class instead of extending
-   `fw_channel`.
-2. OI-2: confirm the copy / do-not-copy split in §5, in particular U6
-   (drop the THRE hold-off) and U14 (drop on overrun).
-3. OI-4: request/ack flush, or a two-writer flush.
-4. OI-5: synchronous reset.
-5. OI-6 to OI-10 (D5–D7, K2, break): accept the proposed answers, or say
-   which to change.
+All open issues are decided (§8). The FIFO answer changed the design: the
+FIFO goes into fw-hdl as `fw_fifo` (§3.4), built when the class model
+needs it (step 7). The quirk split of §5 is taken as proposed, as a working
+assumption: a row can still move if a test on `ref` shows the U2B0
+behaviour differs from what the reference pages say.

@@ -414,6 +414,7 @@ items fw-i2c did not need.
 | ZU6 | Elaboration-time configuration (bus width, endianness, debug) folded before lowering | Q6 |
 | ZU7 | Side-effect reads in the register block lowered as a read strobe | R3 |
 | ZU8 | The assumed view: environment assumptions as SVA `assume`s, used in the induction and stated in the certificate | Q5 |
+| ZU9 | `fw_fifo #(T, DEPTH)` in fw-hdl `src/std/`: packed storage, one writer per side, count, peek, flush (design §3.4, OI-1). Built in step 7 with a unit test and a lowering test in fw-hdl's clone | Q2, D3 |
 
 None of these is built speculatively. Each is built when the lowering of
 fw-uart16550 reaches it, with a generic test in its own clone (fw-i2c
@@ -476,11 +477,11 @@ OI-5, OI-9, OI-10. Record the answers there.
 |---|---|---|
 | D1 | Reference pin: `2b0ad80` (HEAD, includes the timeout fix) or `rel_4` | `2b0ad80` |
 | D2 | Bus width for the headline comparison | **Decided 2026-10-20**: the 8-bit core (`DATA_BUS_WIDTH_8`, no debug block) behind the fw-XXX 32-bit shim (§2.1). The native 32-bit mode packs the 8 byte registers into two words by `wb_sel` (`uart_wb.v`), which is not the fw-XXX convention; it is the second configuration (step 11), so R4 is a step-11 item. |
-| D3 | FIFO: extend `fw_channel` into `fw_fifo` (count, flush, OR over error bits), or keep the FIFO plain and track errors in the model | Plain FIFO plus count/flush in the library; error tracking in the model. An OR over the contents is design-specific. |
-| D4 | Comparison basis for FIFO storage | Report both (a) flops, like for like, as the headline and (b) block RAM, as a measurement |
-| D5 | Where tx error injection lives (K6) | A separate VIP-only driver core in fw-proto-uart, outside `xtor-core`, so synthesizable cores carry no test logic |
-| D6 | Modem lines in the VIP | Reuse fwvip-gpio if its API fits in step 2; otherwise a small modem agent in fwvip-uart |
-| D7 | `fwvip-example-uart16550` | Leave it unused for now |
+| D3 | FIFO: extend `fw_channel` into `fw_fifo` (count, flush, OR over error bits), or keep the FIFO plain and track errors in the model | **Decided 2026-10-21**: a new fw-hdl `fw_fifo` (ZU9; design §3.4). Was: Plain FIFO plus count/flush in the library; error tracking in the model. An OR over the contents is design-specific. |
+| D4 | Comparison basis for FIFO storage | **Decided 2026-10-21**: as recommended. Was: Report both (a) flops, like for like, as the headline and (b) block RAM, as a measurement |
+| D5 | Where tx error injection lives (K6) | **Decided 2026-10-21**: as recommended. Was: A separate VIP-only driver core in fw-proto-uart, outside `xtor-core`, so synthesizable cores carry no test logic |
+| D6 | Modem lines in the VIP | **Decided 2026-10-21**: as recommended. Was: Reuse fwvip-gpio if its API fits in step 2; otherwise a small modem agent in fwvip-uart |
+| D7 | `fwvip-example-uart16550` | **Decided 2026-10-21**: as recommended. Was: Leave it unused for now |
 | D8 | Repo name | **Decided 2026-10-20**: `fw-uart16550` (fw-<oc-ip-name>), package `org.fwip.uart16550`, SV prefix `fw_uart16550_`. Create the remote when step 0 is done. The empty sibling `../fw-uart` is not used. |
 
 ## 9. Steps and status
@@ -488,13 +489,13 @@ OI-5, OI-9, OI-10. Record the answers there.
 | # | Step | Output | Status |
 |---|---|---|---|
 | 0 | Fork `oc-uart16550`, pin U2B0, `fw` patch set. Reference spec (as-built) and register map in SystemRDL. Baseline synthesis script and per-block area. Re-run the shipped bench (U11). | `docs/reference/`, `src/rdl/u2b0_regs.rdl`, `scripts/synth-baseline.sh` | **done 2026-10-21**. Fork `../oc-uart16550` (tags `u2b0`, `u2b0-fw1` = ef67d27, branch `fw-u2b0`, pushed; equivalent and area-identical to `u2b0`). Upstream bench (U11) reproduces the shipped log. Shim `src/ref/oc_uart16550_wb32.sv` + `src/ref/flow.yaml` (`ref-rtl`, `ref-rtl-32`; wired into a root flow.yaml in step 4), Verilator-clean. `scripts/synth-baseline.sh` (configs 8/32/shim, 11-seed median via `scripts/perturb_rtl.py`, shim own cells = 0): baseline §2, budget §6.2. Reference spec `docs/reference/` (12 pages; RTL-read claims marked *(to confirm)*, for step 4) and RDL `src/rdl/u2b0_regs.rdl` + `u2b0_uart16550.rdl` (two addrmaps, DLAB = 0 and DLAB = 1; peakrdl-clean) + `src/rdl/flow.yaml` (rdl-src only). New quirks U13–U26. Remote: `featherweight-ip/fw-uart16550` on the local Forgejo (pushed 2026-10-21, 15410c3). |
-| 1 | Review this plan, answer D1–D8, write the design doc (fw-i2c `docs/design/index.md` shape) | `docs/design/index.md` | draft written 2026-10-21, **waiting for review**: open issues OI-1–OI-10 in index.md §8 (D3–D7 map to OI-1, OI-3, OI-6–OI-8). Findings that change the plan: `fw_channel` does not lower (FIFO = in-repo packed class, §3.4); R1 exists and R2/R3 go in the model's `access()`, so step 6 needs no tool work (§4); single-writer state rule for the concurrent processes (§3.2); fwvip-wb already avoids U13. |
+| 1 | Review this plan, answer D1–D8, write the design doc (fw-i2c `docs/design/index.md` shape) | `docs/design/index.md` | **done 2026-10-21**. All open issues decided (index.md §8): FIFO = new fw-hdl `fw_fifo` (ZU9, step 7); quirks per index.md §5; FIFO flush = two writers, host wins; synchronous reset; D4–D7, K2, break as proposed. Plan changes: step 6 needs no peakrdl/`fw_reg_block` work (R2/R3 in the model's `access()`); fwvip-wb already avoids U13. |
 | 2 | `fw-proto-uart`: restructure to kit conventions; K4, K6 with their K9 tests; lint, CI, formal, skill (K1–K3, K5, K7, K8 in step 7) | fw-proto-uart main | not started |
 | 3 | `fwvip-uart`: tx/rx/mon agents on the step-2 kit API, sequences, b2b and teeth tests, docs, skill | fwvip-uart main | not started |
 | 4 | dfm flow and `ref` view on Verilator with fwvip-wb + fwvip-uart; confirmation tests U1–U12; `lint-rtl` clean | `tests/uvm/`, `docs/reference/deviations.md` | not started |
 | 5 | PSS op-model, equivalence harness, `ref-eq` self-test | `src/pss/`, `tests/uvm/env/` | not started |
-| 6 | Register tooling R1–R4 in peakrdl-fw-hdl / `fw_reg_block`; `fw_uart16550_regs.rdl` | PRs, `src/rdl/` | not started |
-| 7 | fw-proto-uart K1–K3, K5, K7, K8 as the model needs them; class model; `tlm` and `tlm-eq` pass | `src/spl/` | not started |
+| 6 | `fw_uart16550_regs.rdl` (stride 4, both DLAB maps); check the peakrdl-fw-hdl warnings are only for side effects the model handles. No tool work for the headline (design §4); R4 in step 11 | `src/rdl/` | not started |
+| 7 | fw-proto-uart K1–K3, K5, K7, K8 as the model needs them; fw-hdl `fw_fifo` (ZU9); class model; `tlm` and `tlm-eq` pass | `src/spl/`, fw-hdl PR | not started |
 | 8 | Pin top; `wb` and `wb-eq` pass | `src/spl-rtl/` | not started |
 | 9 | Lowering: ZU1–ZU7 as reached; `rtl` and `rtl-eq` pass; first area | `docs/design/synthesis-plan.md`, `docs/results.md` | not started |
 | 10 | Optimization: tight view and certificate on independent processes (Q1); FIFO options (Q2); counters (Q3); assumed view (Q5); model-style options | `docs/design/synthesis-plan.md` | not started |
