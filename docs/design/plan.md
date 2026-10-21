@@ -256,9 +256,10 @@ so the work is a restructure plus API work.
 
 **API and core work** (driven by what the 16550 model and the VIP need).
 The rule for ZU items (§6.1) applies here too: build each item when its
-user reaches it. Step 2 does the restructure plus K4, K6 and the K9 tests
-for them, which the `ref` view's confirmation tests (U5, U12, error bits)
-need. K1, K2, K3, K5, K7 and K8 wait for the class model (step 7).
+user reaches it. Step 2 does the restructure plus K2, K4, K6 and the K9
+tests for them, which the `ref` view's confirmation tests (U5, U12, error
+bits) need. K2 moved into step 2 at the design review (index.md OI-9).
+K1, K3, K5, K7 and K8 wait for the class model (step 7).
 
 | ID | Item | Why |
 |---|---|---|
@@ -490,12 +491,12 @@ OI-5, OI-9, OI-10. Record the answers there.
 |---|---|---|---|
 | 0 | Fork `oc-uart16550`, pin U2B0, `fw` patch set. Reference spec (as-built) and register map in SystemRDL. Baseline synthesis script and per-block area. Re-run the shipped bench (U11). | `docs/reference/`, `src/rdl/u2b0_regs.rdl`, `scripts/synth-baseline.sh` | **done 2026-10-21**. Fork `../oc-uart16550` (tags `u2b0`, `u2b0-fw1` = ef67d27, branch `fw-u2b0`, pushed; equivalent and area-identical to `u2b0`). Upstream bench (U11) reproduces the shipped log. Shim `src/ref/oc_uart16550_wb32.sv` + `src/ref/flow.yaml` (`ref-rtl`, `ref-rtl-32`; wired into a root flow.yaml in step 4), Verilator-clean. `scripts/synth-baseline.sh` (configs 8/32/shim, 11-seed median via `scripts/perturb_rtl.py`, shim own cells = 0): baseline §2, budget §6.2. Reference spec `docs/reference/` (12 pages; RTL-read claims marked *(to confirm)*, for step 4) and RDL `src/rdl/u2b0_regs.rdl` + `u2b0_uart16550.rdl` (two addrmaps, DLAB = 0 and DLAB = 1; peakrdl-clean) + `src/rdl/flow.yaml` (rdl-src only). New quirks U13–U26. Remote: `featherweight-ip/fw-uart16550` on the local Forgejo (pushed 2026-10-21, 15410c3). |
 | 1 | Review this plan, answer D1–D8, write the design doc (fw-i2c `docs/design/index.md` shape) | `docs/design/index.md` | **done 2026-10-21**. All open issues decided (index.md §8): FIFO = new fw-hdl `fw_fifo` (ZU9, step 7); quirks per index.md §5; FIFO flush = two writers, host wins; synchronous reset; D4–D7, K2, break as proposed. Plan changes: step 6 needs no peakrdl/`fw_reg_block` work (R2/R3 in the model's `access()`); fwvip-wb already avoids U13. |
-| 2 | `fw-proto-uart`: restructure to kit conventions; K4, K6 with their K9 tests; lint, CI, formal, skill (K1–K3, K5, K7, K8 in step 7) | fw-proto-uart main | not started |
+| 2 | `fw-proto-uart`: restructure to kit conventions; K2, K4, K6 with their K9 tests; lint, CI, formal, skill (K1, K3, K5, K7, K8 in step 7) | fw-proto-uart main | **done 2026-10-21** (clone at `../fw-proto-uart`). Kit-convention restructure (project.dv, package map, `files`/`class`/`xtor-core`/`checker` exports, `uart_<role>_bridge.svh`, `start_bridge()`, lint top and waivers, ci/run.sh + both workflows, README, PROPERTIES.md, `skills/fw-proto-uart`). K2 `uart_baud_xtor_core` (cores take `tick`). K4 `brk` level + `set_break`/`send_break`, rx one BI per break. K6 `uart_tx_inject_if` (`send_err`, `glitch`) in the tx xtor_if, muxed in the wrapper. Sims `uart-proto` (151 checks), `uart-proto-err`, `uart-proto-os4` pass; lint 0 findings; `fv-quick` ~30 s, `fv` 17 min, `fv-cover` all reached; 4 mutations all caught. Kit details that bear on the model: index.md §3.3 (incl. U24 baud restart for step 7) |
 | 3 | `fwvip-uart`: tx/rx/mon agents on the step-2 kit API, sequences, b2b and teeth tests, docs, skill | fwvip-uart main | not started |
 | 4 | dfm flow and `ref` view on Verilator with fwvip-wb + fwvip-uart; confirmation tests U1–U12; `lint-rtl` clean | `tests/uvm/`, `docs/reference/deviations.md` | not started |
 | 5 | PSS op-model, equivalence harness, `ref-eq` self-test | `src/pss/`, `tests/uvm/env/` | not started |
 | 6 | `fw_uart16550_regs.rdl` (stride 4, both DLAB maps); check the peakrdl-fw-hdl warnings are only for side effects the model handles. No tool work for the headline (design §4); R4 in step 11 | `src/rdl/` | not started |
-| 7 | fw-proto-uart K1–K3, K5, K7, K8 as the model needs them; fw-hdl `fw_fifo` (ZU9); class model; `tlm` and `tlm-eq` pass | `src/spl/`, fw-hdl PR | not started |
+| 7 | fw-proto-uart K1, K3, K5, K7, K8 as the model needs them; fw-hdl `fw_fifo` (ZU9); class model; `tlm` and `tlm-eq` pass | `src/spl/`, fw-hdl PR | not started |
 | 8 | Pin top; `wb` and `wb-eq` pass | `src/spl-rtl/` | not started |
 | 9 | Lowering: ZU1–ZU7 as reached; `rtl` and `rtl-eq` pass; first area | `docs/design/synthesis-plan.md`, `docs/results.md` | not started |
 | 10 | Optimization: tight view and certificate on independent processes (Q1); FIFO options (Q2); counters (Q3); assumed view (Q5); model-style options | `docs/design/synthesis-plan.md` | not started |

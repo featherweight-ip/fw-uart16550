@@ -180,6 +180,33 @@ same-clock set and clear cases exact by construction, and the relation
   it matches the reference without change. K5 (majority option) is not
   needed for equivalence and stays a kit option.
 
+**The kit as built in step 2** (fw-proto-uart, `src/`), where it bears on
+the model:
+
+- **Baud tick (K2).** `uart_baud_xtor_core`: `tick` every `cfg_divisor`
+  clocks; divisor 0 stops the line. A divisor change takes effect at the
+  next tick. The `dlm_restart` rule (U24) has the model restart the
+  divider on any DL write, so step 7 needs a restart input on the baud
+  core, or that rule has to change.
+- **tx core.** Every bit edge is on a tick, and a character is accepted on
+  the tick that ends the previous stop bit, so back-to-back frames have no
+  gap. U2B0 also shows 16/24/32 ticks of stop between back-to-back
+  characters (timing.md). `busy` gives TEMT (`!busy` and the FIFO empty).
+  Framing is sampled when a character is accepted (K1 at the core level;
+  the class-side `configure()` is unchanged).
+- **Break (K4).** `brk` is a level: space at once, no new character while
+  it is 1, and one bit of mark after it falls before the next start bit.
+  U2B0 has no such mark. That and the held characters are both part of
+  rule `break_queue`.
+- **rx core.** It looks at the line only on ticks. A start is the first
+  tick that sees space, and each bit is sampled `OVERSAMPLE/2` ticks after
+  that (8 to 9 ticks after the edge at 16×). After a BI character it waits
+  for mark on a tick. The step 4 tests show whether U2B0's sample point is
+  the same tick; U4 equivalence under glitch tests depends on it.
+- **Error injection (K6)** is in `uart_tx_xtor_if` (not synthesizable),
+  muxed over the core's `txd` in the `uart_tx_xtor` wrapper. Each injected
+  frame ends with one bit of mark.
+
 ### 3.4 FIFOs
 
 `fw_channel` cannot be used. The fw-i2c lowering path does not special-case
