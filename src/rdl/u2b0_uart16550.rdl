@@ -1,0 +1,60 @@
+// Register map of the OpenCores uart16550 core (J. Gorban, I. Mohor) as
+// implemented by rtl/verilog/uart_regs.v at freecores/uart16550 2b0ad80
+// ("U2B0", fork tag u2b0), in the DATA_BUS_WIDTH_8 configuration.
+//
+// This describes the RTL as built, not the rev 0.6 PDF specification. Where
+// the two differ, the description says so; see docs/reference/deviations.md.
+// The registers themselves are in u2b0_regs.rdl, shared with fw-uart16550's
+// map (step 6).
+//
+// Bus: 8-bit WISHBONE Classic, wb_adr_i[2:0], one register per byte address.
+// Offsets 0, 2 and 4 are split: a write reaches one register (THR, FCR, MCR)
+// and a read returns another (RBR, IIR, 0).
+//
+// LCR.DLAB banks offsets 0 and 1. SystemRDL has no bank switch, so there
+// are two address maps:
+//
+//   u2b0_uart16550       LCR.DLAB = 0: offsets 0..7
+//   u2b0_uart16550_dlab  LCR.DLAB = 1: DLL at 0, DLM at 1 (offsets 2..7 as
+//                        in u2b0_uart16550, without read side effects)
+//
+// The 32-bit configuration's debug registers (byte addresses 8 and 12, read
+// with wb_sel_i = 4'b1111) are not described here; see
+// docs/reference/registers.md.
+
+addrmap u2b0_uart16550 {
+    name = "OpenCores uart16550 (U2B0), LCR.DLAB = 0";
+    desc = "Register map of the OpenCores uart16550 core as implemented at
+freecores/uart16550 2b0ad80, 8-bit bus (DATA_BUS_WIDTH_8), with LCR.DLAB =
+0. With LCR.DLAB = 1, offsets 0 and 1 reach DLL and DLM instead
+(u2b0_uart16550_dlab).";
+
+    default regwidth = 8;
+    default accesswidth = 8;
+    default sw = rw;
+    default hw = r;
+
+    `define U2B0_STRIDE 1
+    `include "u2b0_regs.rdl"
+    `undef U2B0_STRIDE
+};
+
+addrmap u2b0_uart16550_dlab {
+    name = "OpenCores uart16550 (U2B0), LCR.DLAB = 1";
+    desc = "The divisor latch bank of the OpenCores uart16550 core
+(freecores/uart16550 2b0ad80, 8-bit bus): DLL and DLM, at offsets 0 and 1
+while LCR.DLAB = 1. Offsets 2 to 7 reach the same registers as in
+u2b0_uart16550 (IIR/FCR, LCR, MCR, LSR, MSR, SCR), except that reads of
+IIR, LSR and MSR have no side effects while DLAB = 1 (U25).";
+
+    default regwidth = 8;
+    default accesswidth = 8;
+    default sw = rw;
+    default hw = r;
+
+    `define U2B0_STRIDE 1
+    `define U2B0_DLAB
+    `include "u2b0_regs.rdl"
+    `undef U2B0_DLAB
+    `undef U2B0_STRIDE
+};

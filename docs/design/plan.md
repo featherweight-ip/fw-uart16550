@@ -112,16 +112,37 @@ Reset is asynchronous and active high, with one clock (`wb_clk_i`).
 | U10 | In 32-bit mode, a non-one-hot `wb_sel` reads 0; `4'b1111` reads the debug word. A write with `4'b1111` goes to byte 0, so the upstream bench (which writes with `sel = 4'hF`) puts its LCR write into THR at `2b0ad80`. |
 | U11 | The shipped `sim/rtl_sim/log` records "Bit 5 of LSR register not '1'" (THRE). **Re-run 2026-10-21** (`scripts/upstream-bench.sh`, Icarus, two bench-only `#0` race workarounds): with `DATA_BUS_WIDTH_8` it reproduces the shipped report exactly, on `u2b0` and `u2b0-fw1` alike. Likely a bench bug, not RTL: the bench device's `rx_clk_cnt_en` starts as x, so its bit counter runs from t≈0 instead of from the start bit (1.23 ms), and it expects THRE 1.23 ms before the RTL raises it (`block_cnt` = 143 at LCR = 0x03). Confirm on the `ref` view (step 4). In the default 32-bit config the bench fails at initialization instead; see U10. |
 | U12 | Break: a zero character with BI is pushed after one character time low. |
+| U13–U26 | Found by reading the RTL in step 0; listed with evidence in `docs/reference/deviations.md`. The ones that shape later steps: **U13** an access whose `stb` rises in the clock right after the previous ack is acked but not performed (`uart_wb.v` `wbstate`/`wre`), so the bench's WISHBONE master must leave an idle clock between accesses (fwvip-wb, step 4); **U14** on overrun the RAM write still happens and overwrites the oldest entry (U5 holds for count and flags only); U15 the same in the TX FIFO; U16–U21 FIFO/LSR/RDA corner cases; U24 a DLM write does not restart the divider. |
 
-**Baseline area** (Yosys 0.69, `synth_ice40 -device u`, top `uart_top`,
-measured 2026-10-20; re-measure in step 0 with a script in the repo, as
-the median of 11 runs; a single run on `u2b0-fw1` gave 914 and 818 LUT4,
-with the same FF and CARRY counts):
+**Baseline area** (Yosys 0.69, `synth_ice40 -device u`, flattened;
+`scripts/synth-baseline.sh`, LUT4 as the median [range] of 11 reordered
+runs; measured 2026-10-21; `u2b0` and `u2b0-fw1` give identical numbers in
+every configuration):
 
 | Config | LUT4 | FF | CARRY | BRAM |
 |---|---|---|---|---|
-| default (32-bit, debug) | 905 | 606 | 80 | 0 |
-| `DATA_BUS_WIDTH_8` | 815 | 564 | 80 | 0 |
+| default (32-bit, debug), top `uart_top` | 911 [904, 919] | 606 | 80 | 0 |
+| `DATA_BUS_WIDTH_8`, top `uart_top` | 820 [817, 824] | 564 | 80 | 0 |
+| `DATA_BUS_WIDTH_8` + shim (`ref-rtl`) | 821 [817, 827] | 564 | 80 | 0 |
+
+The shim's own cells are zero (hierarchy kept); the 1 LUT4 between the last
+two rows is ABC noise. The 8-bit core places on the UP5K-SG48 in 1231 of
+5280 logic cells (23%) and reaches 41.3 MHz (one seed; the board clock is
+12 MHz). Per module, hierarchy kept (own cells; `raminfr` twice):
+
+| Module | LUT4 | FF | CARRY |
+|---|---|---|---|
+| `uart_wb` (8-bit) | 5 | 27 | 0 |
+| `uart_regs` (registers, divider, IIR, timeout, modem) | 218 | 118 | 39 |
+| `uart_sync_flops` | 2 | 2 | 0 |
+| `uart_transmitter` | 52 | 22 | 4 |
+| `uart_tfifo` (control) | 29 | 14 | 10 |
+| `uart_receiver` | 129 | 54 | 17 |
+| `uart_rfifo` (control + 16×3 error bits) | 139 | 62 | 10 |
+| `raminfr` ×2 (16×8 storage + async read mux) | 2 × 140 | 2 × 128 | 0 |
+
+In the 32-bit configuration `uart_wb` is 69 LUT4 / 79 FF, `uart_regs` 223
+LUT4, and `uart_debug_if` adds 59 LUT4.
 
 About 300 of the FFs are FIFO storage:
 
@@ -410,7 +431,13 @@ synthesis-plan §8.4 rule).
   - (b) Memory: FIFOs in block RAM on both sides. The reference needs a
     sync-read `raminfr` patch, kept on the fork as a measurement-only
     branch.
-- **Budget.** Set in step 0 from the per-block baseline, as fw-i2c §2 did.
+- **Budget** (set in step 0 from the baseline in §2, as fw-i2c
+  synthesis-plan §2 did). Headline, `ref-rtl` (8-bit core + shim),
+  flattened: 821 LUT4, 564 FF, 80 CARRY. 10%: **≤ 903 LUT4, ≤ 620 FF**.
+  FIFO storage (2 × `raminfr`: 280 LUT4, 256 FF, plus 48 RX error-bit FFs)
+  is reported apart from control, since it is a third of the LUT4 and half
+  of the FFs (§10). Timing: ≥ 0.9 × 41 MHz on the 8-bit core, which is not
+  expected to bind.
 
 ## 7. Repo layout (as fw-i2c)
 
@@ -456,7 +483,7 @@ Set up as fw-i2c: `ivpm update`, then once
 
 | # | Step | Output | Status |
 |---|---|---|---|
-| 0 | Fork `oc-uart16550`, pin U2B0, `fw` patch set. Reference spec (as-built) and register map in SystemRDL. Baseline synthesis script and per-block area. Re-run the shipped bench (U11). | `docs/reference/`, `src/rdl/u2b0_regs.rdl`, `scripts/synth-baseline.sh` | in progress 2026-10-20: fork patch set done and pushed 2026-10-21 (`../oc-uart16550`, tags `u2b0`, `u2b0-fw1` = ef67d27, branch `fw-u2b0`; equivalent to `u2b0`, identical area, both configs; ivpm can pin `tag: u2b0-fw1`). Upstream bench (U11) re-run: reproduces the shipped log (see U11). Not started: reference spec, RDL, baseline script, shim. |
+| 0 | Fork `oc-uart16550`, pin U2B0, `fw` patch set. Reference spec (as-built) and register map in SystemRDL. Baseline synthesis script and per-block area. Re-run the shipped bench (U11). | `docs/reference/`, `src/rdl/u2b0_regs.rdl`, `scripts/synth-baseline.sh` | **done 2026-10-21**. Fork `../oc-uart16550` (tags `u2b0`, `u2b0-fw1` = ef67d27, branch `fw-u2b0`, pushed; equivalent and area-identical to `u2b0`). Upstream bench (U11) reproduces the shipped log. Shim `src/ref/oc_uart16550_wb32.sv` + `src/ref/flow.yaml` (`ref-rtl`, `ref-rtl-32`; wired into a root flow.yaml in step 4), Verilator-clean. `scripts/synth-baseline.sh` (configs 8/32/shim, 11-seed median via `scripts/perturb_rtl.py`, shim own cells = 0): baseline §2, budget §6.2. Reference spec `docs/reference/` (12 pages; RTL-read claims marked *(to confirm)*, for step 4) and RDL `src/rdl/u2b0_regs.rdl` + `u2b0_uart16550.rdl` (two addrmaps, DLAB = 0 and DLAB = 1; peakrdl-clean) + `src/rdl/flow.yaml` (rdl-src only). New quirks U13–U26. Open: create the fw-uart16550 remote (D8). |
 | 1 | Review this plan, answer D1–D8, write the design doc (fw-i2c `docs/design/index.md` shape) | `docs/design/index.md` | not started |
 | 2 | `fw-proto-uart`: restructure to kit conventions; K4, K6 with their K9 tests; lint, CI, formal, skill (K1–K3, K5, K7, K8 in step 7) | fw-proto-uart main | not started |
 | 3 | `fwvip-uart`: tx/rx/mon agents on the step-2 kit API, sequences, b2b and teeth tests, docs, skill | fwvip-uart main | not started |

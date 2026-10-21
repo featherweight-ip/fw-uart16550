@@ -1,0 +1,66 @@
+# Reference implementation (arm A): the OpenCores uart16550 core, U2B0
+# (freecores 2b0ad80) with the fw patch set (tag u2b0-fw1), from
+# featherweight-ip/oc-uart16550 (packages/oc-uart16550), and the 32-bit
+# WISHBONE shim that gives it the fw-XXX bus convention (plan §2.1).
+#
+# The core is configured by `define (DATA_BUS_WIDTH_8, ...), never by editing
+# uart_defines.v. A define applies to a whole compile, so each configuration
+# is its own fileset (and image):
+#   ref-rtl     DATA_BUS_WIDTH_8 core + oc_uart16550_wb32 (the headline, D2)
+#   ref-rtl-32  default 32-bit core with the debug interface, no shim (step 11)
+#
+# Not yet wired into a root flow.yaml (step 4).
+fragment:
+  tasks:
+  - name: oc-uart16550-rtl-8
+    uses: std.FileSet
+    with:
+      type: verilogSource
+      base: "${{ env.IVPM_PACKAGES }}/oc-uart16550/rtl/verilog"
+      include:
+      - raminfr.v
+      - uart_receiver.v
+      - uart_regs.v
+      - uart_rfifo.v
+      - uart_sync_flops.v
+      - uart_tfifo.v
+      - uart_top.v
+      - uart_transmitter.v
+      - uart_wb.v
+      incdirs:
+      - .
+      defines:
+      - DATA_BUS_WIDTH_8
+
+  - name: oc-uart16550-wb32
+    uses: std.FileSet
+    needs: [oc-uart16550-rtl-8]
+    with:
+      type: systemVerilogSource
+      include:
+      - oc_uart16550_wb32.sv
+      defines:
+      - DATA_BUS_WIDTH_8
+
+  - export: ref-rtl
+    uses: std.FileSet
+    needs: [oc-uart16550-wb32]
+
+  - export: ref-rtl-32
+    uses: std.FileSet
+    with:
+      type: verilogSource
+      base: "${{ env.IVPM_PACKAGES }}/oc-uart16550/rtl/verilog"
+      include:
+      - raminfr.v
+      - uart_debug_if.v
+      - uart_receiver.v
+      - uart_regs.v
+      - uart_rfifo.v
+      - uart_sync_flops.v
+      - uart_tfifo.v
+      - uart_top.v
+      - uart_transmitter.v
+      - uart_wb.v
+      incdirs:
+      - .

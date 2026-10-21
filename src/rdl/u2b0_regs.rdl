@@ -1,0 +1,448 @@
+// The registers of the OpenCores uart16550 core (J. Gorban, I. Mohor) as
+// implemented by rtl/verilog/uart_regs.v at freecores/uart16550 2b0ad80
+// ("U2B0", fork tag u2b0). Shared by the maps that place them:
+//
+//   u2b0_uart16550.rdl  U2B0 itself, DATA_BUS_WIDTH_8: 8-bit registers, one
+//                       per byte address
+//   (step 6)            fw-uart16550: the same registers on a 4-byte stride
+//
+// This file is not a SystemRDL description on its own: it is included INSIDE
+// an addrmap body, which first sets `default regwidth`/`accesswidth`,
+// `default sw = rw`, `default hw = r`, and defines U2B0_STRIDE (the byte
+// distance between registers). Register n sits at n * U2B0_STRIDE.
+//
+// DLAB banking. LCR.DLAB (LCR[7]) switches offsets 0 and 1 between
+// RBR/THR/IER (DLAB = 0) and the divisor latch DLL/DLM (DLAB = 1).
+// SystemRDL cannot express a bank switch, and it rejects a read-write
+// register on top of RBR/THR. So this file describes one bank per include:
+//
+//   U2B0_DLAB undefined  the DLAB = 0 view: all eight offsets
+//   U2B0_DLAB defined    the DLAB = 1 view: DLL and DLM at offsets 0 and 1
+//                        only. Offsets 2..7 reach the same registers as in
+//                        the DLAB = 0 view, but reads of IIR, LSR and MSR
+//                        then have no side effects (U25).
+//
+// Split offsets: 0 (RBR read, THR write), 2 (IIR read, FCR write) and 4
+// (MCR write; reads return 0, U1). SystemRDL allows a read-only and a
+// write-only register at one address.
+//
+// Read side effects are given with rclr where the RTL clears the field
+// itself on the read, and with swacc (the hardware sees the read) plus
+// desc where the read acts on something else (RBR pops the RX FIFO, IIR
+// clears the THRE interrupt). All read side effects need LCR.DLAB = 0.
+//
+// This describes the RTL as built, not the rev 0.6 PDF specification. Where
+// the two differ, the description says so; see docs/reference/deviations.md
+// (IDs U1..U26). Line numbers are uart_regs.v at tag u2b0.
+
+`ifndef U2B0_DLAB
+
+reg {
+    name = "Receiver Buffer (RBR)";
+    desc = "Read with LCR.DLAB = 0. Returns the data byte of the character
+at the head of the RX FIFO. The read pops the FIFO one clock after the
+access (rf_pop, uart_regs.v:421-431). PE, FE and BI in LSR describe this
+same head character.
+
+Reading an empty FIFO returns a stale byte (the RAM has no reset; after
+reset it is X in simulation) and does not change the FIFO, unless a
+character is pushed in the clock of the pop, which loses that character
+(U16). With LCR.DLAB = 1 this offset reads DLL.";
+    field {
+        sw = r; hw = w; swacc;
+        desc = "Received data. Unused high bits are 0 for 5-, 6- and 7-bit
+characters.";
+    } DATA[7:0] = 0;
+} RBR @ (0 * `U2B0_STRIDE);
+
+reg {
+    name = "Transmitter Holding (THR)";
+    desc = "Written with LCR.DLAB = 0. Pushes the byte into the 16-deep TX
+FIFO one clock after the access (tf_push, uart_regs.v:533-557), clears
+LSR.THRE and LSR.TEMT and the THRE interrupt. If LSR.THRE was 1, LSR.THRE
+then stays 0 for about one character time (block_cnt, U6), even when the
+transmitter takes the byte at once. A write to a full TX FIFO overwrites
+the next byte to be sent (U15). With LCR.DLAB = 1 this offset writes DLL.";
+    field {
+        sw = w; hw = r; swmod;
+        desc = "Data to transmit. For 5-, 6- and 7-bit characters only the
+low bits are sent.";
+    } DATA[7:0] = 0;
+} THR @ (0 * `U2B0_STRIDE);
+
+reg {
+    name = "Interrupt Enable (IER)";
+    desc = "Accessed with LCR.DLAB = 0 (uart_regs.v:483-496); with DLAB = 1
+this offset is DLM. Only bits 3:0 are stored.
+
+Clearing an enable bit also clears that source's pending flag. Setting
+an enable bit while its condition is already true raises the interrupt
+(the pending flags latch on a rising edge of enable AND condition).";
+    field {
+        name = "Reserved";
+        sw = r; hw = na;
+        desc = "Read 0; writes ignored.";
+    } RSVD[7:4] = 0;
+    field {
+        name = "Modem status interrupt enable";
+        desc = "Interrupt when any of MSR[3:0] is set.";
+    } MS[3:3] = 0;
+    field {
+        name = "Receiver line status interrupt enable";
+        desc = "Interrupt when any of LSR.OE, PE, FE, BI is set.";
+    } RLS[2:2] = 0;
+    field {
+        name = "THR empty interrupt enable";
+        desc = "Interrupt when LSR.THRE rises (or when this bit is set
+with THRE already 1).";
+    } THRE[1:1] = 0;
+    field {
+        name = "Received data available interrupt enable";
+        desc = "Enables both the RDA (trigger level) and the character
+timeout (TI) interrupts.";
+    } RDA[0:0] = 0;
+} IER @ (1 * `U2B0_STRIDE);
+
+reg {
+    name = "Interrupt Identification (IIR)";
+    desc = "Reads {4'b1100, iir[3:0]} (uart_regs.v:410) in either DLAB
+state. iir is registered from the pending flags each clock, by priority
+(uart_regs.v:857-891):
+
+  RLS 0xC6 > RDA 0xC4 > TI 0xCC > THRE 0xC2 > MS 0xC0; none 0xC1.
+
+RDA is shown while the RX FIFO level is at or above the trigger level
+and IER.RDA is 1 (the level, not the pending latch; U7). The others show
+the pending latch.
+
+Side effect (DLAB = 0 only, U25): a read that returns THRE (0xC2)
+clears the THRE pending flag (uart_regs.v:821). No other source is
+cleared by an IIR read.";
+    field {
+        name = "FIFOs enabled";
+        sw = r; hw = na;
+        desc = "Always 2'b11: the FIFOs are always on (U3).";
+    } FIFO_EN[7:6] = 2'b11;
+    field {
+        name = "Reserved";
+        sw = r; hw = na;
+        desc = "Read 0.";
+    } RSVD[5:4] = 0;
+    field {
+        name = "Interrupt identification";
+        sw = r; hw = w; swacc;
+        desc = "3'b011 RLS, 3'b010 RDA, 3'b110 TI, 3'b001 THRE, 3'b000 MS
+(also 3'b000 when nothing is pending).";
+    } IID[3:1] = 0;
+    field {
+        name = "No interrupt pending";
+        sw = r; hw = w;
+        desc = "0: an interrupt is pending. 1: none. Note that int_o is
+driven from the pending latches, not from this bit, and the two can
+disagree (U20, U21).";
+    } NO_INT[0:0] = 1;
+} IIR @ (2 * `U2B0_STRIDE);
+
+reg {
+    name = "FIFO Control (FCR)";
+    desc = "Write-only (reads at this offset return IIR). Written in
+either DLAB state (uart_regs.v:500-513). Only bits 7:6 are stored. They
+cannot be read back in this configuration (in the 32-bit configuration
+they are in the debug register at byte 12).";
+    field {
+        name = "RX trigger level";
+        sw = w; hw = r;
+        desc = "RX FIFO level for the RDA interrupt: 2'b00 = 1, 2'b01 = 4,
+2'b10 = 8, 2'b11 = 14 characters. Resets to 2'b11 (14), as the PDF says;
+an NS16550A resets to 1. Changing it while RDA is pending can leave
+int_o stuck high (U21).";
+    } RX_TRIG[7:6] = 2'b11;
+    field {
+        name = "Ignored";
+        sw = w; hw = na;
+        desc = "Bits 5:3 (bit 3 is DMA mode on an NS16550A) have no effect.";
+    } RSVD[5:3] = 0;
+    field {
+        name = "TX FIFO reset";
+        sw = w; hw = r; singlepulse;
+        desc = "1: clear the TX FIFO (pointers and count) for one clock. A
+character already in the transmitter shift register is completed. A
+reset within one baud tick of the transmitter leaving idle can send a
+stale byte (U26).";
+    } TX_RESET[2:2] = 0;
+    field {
+        name = "RX FIFO reset";
+        sw = w; hw = r; singlepulse;
+        desc = "1: clear the RX FIFO (pointers, count, error flags,
+overrun) and LSR.DR for one clock. The receiver FSM is not reset: a
+character in progress is completed and pushed. The RAM is not cleared.
+A pending RDA interrupt is not cleared (U21).";
+    } RX_RESET[1:1] = 0;
+    field {
+        name = "FIFO enable (ignored)";
+        sw = w; hw = na;
+        desc = "No effect: the core has no 16450 mode (U3).";
+    } FIFO_EN[0:0] = 0;
+} FCR @ (2 * `U2B0_STRIDE);
+
+reg {
+    name = "Line Control (LCR)";
+    desc = "Read-write in either DLAB state (uart_regs.v:475-480). Changes
+take effect at once, including in the middle of a character.";
+    field {
+        name = "Divisor latch access";
+        desc = "1: offsets 0 and 1 reach DLL and DLM, and reads of RBR,
+IIR, LSR and MSR have no side effects (U25). The baud generator runs in
+either state.";
+    } DLAB[7:7] = 0;
+    field {
+        name = "Break control";
+        desc = "1: stx_pad_o is forced to 0 (in loopback, the receiver
+input is forced to 0 instead). The transmitter keeps running behind the
+forced 0.";
+    } BC[6:6] = 0;
+    field {
+        name = "Stick parity";
+        desc = "With PEN = 1: EPS = 0 sends and checks parity as 1; EPS = 1
+as 0.";
+    } SP[5:5] = 0;
+    field {
+        name = "Even parity select";
+        desc = "0: odd parity. 1: even parity.";
+    } EPS[4:4] = 0;
+    field {
+        name = "Parity enable";
+        desc = "1: a parity bit is sent and checked.";
+    } PEN[3:3] = 0;
+    field {
+        name = "Stop bits";
+        desc = "0: one stop bit. 1: 1.5 stop bits for 5-bit characters,
+otherwise 2. The receiver checks only the first stop bit.";
+    } STB[2:2] = 0;
+    field {
+        name = "Word length";
+        desc = "2'b00 = 5, 2'b01 = 6, 2'b10 = 7, 2'b11 = 8 data bits.";
+    } WLS[1:0] = 2'b11;
+} LCR @ (3 * `U2B0_STRIDE);
+
+reg {
+    name = "Modem Control (MCR)";
+    desc = "Write-only: reads at this offset return 0 (U1; uart_regs.v:415).
+Bits 4:0 are stored (uart_regs.v:516-521). The modem outputs are
+active high: rts_pad_o = RTS, dtr_pad_o = DTR (uart_regs.v:351-352),
+the opposite of the PDF (U23). There are no OUT1/OUT2 pins.";
+    field {
+        name = "Ignored";
+        sw = w; hw = na;
+        desc = "Bits 7:5 have no effect.";
+    } RSVD[7:5] = 0;
+    field {
+        name = "Loopback";
+        sw = w; hw = r;
+        desc = "1: the transmitter output feeds the receiver, stx_pad_o
+is held at 1, srx_pad_i is ignored, and MSR[7:4] read RTS, DTR, OUT1,
+OUT2. rts_pad_o and dtr_pad_o still follow RTS and DTR (U8). The MSR
+delta bits still follow the pads (U22).";
+    } LOOP[4:4] = 0;
+    field {
+        name = "Out 2";
+        sw = w; hw = r;
+        desc = "Only visible as MSR.DCD in loopback.";
+    } OUT2[3:3] = 0;
+    field {
+        name = "Out 1";
+        sw = w; hw = r;
+        desc = "Only visible as MSR.RI in loopback.";
+    } OUT1[2:2] = 0;
+    field {
+        name = "Request to send";
+        sw = w; hw = r;
+        desc = "Drives rts_pad_o (1 = pin high).";
+    } RTS[1:1] = 0;
+    field {
+        name = "Data terminal ready";
+        sw = w; hw = r;
+        desc = "Drives dtr_pad_o (1 = pin high).";
+    } DTR[0:0] = 0;
+} MCR @ (4 * `U2B0_STRIDE);
+
+reg {
+    name = "MCR read (reads 0)";
+    desc = "A read at the MCR offset returns 0: the read mux has no MCR
+entry (uart_regs.v:415). See U1.";
+    field {
+        sw = r; hw = na;
+        desc = "Reads 0.";
+    } RSVD[7:0] = 0;
+} MCR_RD @ (4 * `U2B0_STRIDE);
+
+reg {
+    name = "Line Status (LSR)";
+    desc = "Read-only (uart_regs.v:590-689). Each bit is a flop that is set
+on a rising edge of its condition, not a copy of the condition.
+
+Side effect (DLAB = 0 only, U25): a read clears OE, PE, FE, BI and FIFOE
+in the clock of the access (lsr_mask, the rising edge of the read
+strobe, uart_regs.v:439, 455), clears the RX FIFO overrun flag and the RLS
+interrupt. The value returned is the value before the clear. DR, THRE and
+TEMT are not affected by the read.
+
+Because PE, FE, BI and FIFOE are set only on a rising edge, an error that
+is still present after the read is not reported again (U18, U19).";
+    field {
+        name = "Error in RX FIFO";
+        sw = r; hw = w; rclr;
+        desc = "Set on a rising edge of (any PE, FE or BI flag in the RX
+FIFO, or overrun) (uart_regs.v:600, 687-689). Cleared by an LSR read even
+if errored characters remain in the FIFO; it is not set again until the
+condition falls and rises (U19). Stale flags left by a simultaneous push
+and pop can hold the condition high (U17).";
+    } FIFOE[7:7] = 0;
+    field {
+        name = "Transmitter empty";
+        sw = r; hw = w;
+        desc = "Set on a rising edge of (TX FIFO empty, THRE hold-off done,
+transmitter FSM idle) (uart_regs.v:599, 676-678). Cleared by a THR write.
+The FSM returns to idle 14 baud ticks into a one-stop-bit stop bit, so
+TEMT rises about 2/16 bit before the stop bit ends (to confirm).";
+    } TEMT[6:6] = 1;
+    field {
+        name = "THR empty";
+        sw = r; hw = w;
+        desc = "Set on a rising edge of (TX FIFO empty, THRE hold-off done)
+(uart_regs.v:598, 665-667). Cleared by a THR write. A THR write while
+THRE = 1 starts the hold-off counter block_cnt, so THRE stays 0 for
+about one character time even if the FIFO empties at once (U6). Drives
+the THRE interrupt.";
+    } THRE[5:5] = 1;
+    field {
+        name = "Break interrupt";
+        sw = r; hw = w; rclr;
+        desc = "Set on a rising edge of the BI flag of the head character
+(uart_regs.v:597, 654-656). A break is a zero character with BI = 1,
+PE = 0, FE = 0, pushed after the line has been low for one character
+time (U12).";
+    } BI[4:4] = 0;
+    field {
+        name = "Framing error";
+        sw = r; hw = w; rclr;
+        desc = "Set on a rising edge of the FE flag of the head character
+(uart_regs.v:596, 643-645). Two characters in a row with FE: the second
+is not reported if LSR was read in between (U18).";
+    } FE[3:3] = 0;
+    field {
+        name = "Parity error";
+        sw = r; hw = w; rclr;
+        desc = "Set on a rising edge of the PE flag of the head character
+(uart_regs.v:595, 632-634). Same limitation as FE (U18).";
+    } PE[2:2] = 0;
+    field {
+        name = "Overrun error";
+        sw = r; hw = w; rclr;
+        desc = "Set on a rising edge of the RX FIFO overrun flag, which is
+set by a push into a full FIFO (uart_rfifo.v:285). That push overwrites
+the data byte of the head character (U14), unlike the PDF.";
+    } OE[1:1] = 0;
+    field {
+        name = "Data ready";
+        sw = r; hw = w;
+        desc = "Set when a character is pushed into an empty RX FIFO;
+cleared when the last character is popped, or by FCR.RX_RESET
+(uart_regs.v:593, 609-612). Not cleared by an LSR read. Can stay 1 with
+an empty FIFO after U16.";
+    } DR[0:0] = 0;
+} LSR @ (5 * `U2B0_STRIDE);
+
+reg {
+    name = "Modem Status (MSR)";
+    desc = "Read-only (uart_regs.v:572-587). The modem inputs are not
+synchronized (U9).
+
+Side effect (DLAB = 0 only, U25): a read clears bits 3:0 and the MS
+interrupt. The clear is one clock after the access (msi_reset,
+uart_regs.v:458-468), and a pad change in that clock is lost (to
+confirm). The value returned is the value before the clear.";
+    field {
+        name = "Data carrier detect";
+        sw = r; hw = w;
+        desc = "dcd_pad_i, not its complement (U23); OUT2 in loopback.";
+    } DCD[7:7] = 0;
+    field {
+        name = "Ring indicator";
+        sw = r; hw = w;
+        desc = "ri_pad_i (U23); OUT1 in loopback.";
+    } RI[6:6] = 0;
+    field {
+        name = "Data set ready";
+        sw = r; hw = w;
+        desc = "dsr_pad_i (U23); DTR in loopback.";
+    } DSR[5:5] = 0;
+    field {
+        name = "Clear to send";
+        sw = r; hw = w;
+        desc = "cts_pad_i (U23); RTS in loopback.";
+    } CTS[4:4] = 0;
+    field {
+        name = "Delta DCD";
+        sw = r; hw = w; rclr;
+        desc = "dcd_pad_i changed. Follows the pad, also in loopback (U22).";
+    } DDCD[3:3] = 0;
+    field {
+        name = "Trailing edge RI";
+        sw = r; hw = w; rclr;
+        desc = "ri_pad_i changed, on either edge, not only the trailing
+edge the PDF gives (U22).";
+    } TERI[2:2] = 0;
+    field {
+        name = "Delta DSR";
+        sw = r; hw = w; rclr;
+        desc = "dsr_pad_i changed (U22).";
+    } DDSR[1:1] = 0;
+    field {
+        name = "Delta CTS";
+        sw = r; hw = w; rclr;
+        desc = "cts_pad_i changed (U22).";
+    } DCTS[0:0] = 0;
+} MSR @ (6 * `U2B0_STRIDE);
+
+reg {
+    name = "Scratch (SCR)";
+    desc = "Eight bits, read-write, no function (uart_regs.v:523-530,
+414). The PDF says the scratch register was removed (U2).";
+    field {
+        desc = "Scratch data.";
+    } DATA[7:0] = 0;
+} SCR @ (7 * `U2B0_STRIDE);
+
+`else // U2B0_DLAB: the LCR.DLAB = 1 bank
+
+reg {
+    name = "Divisor Latch, low byte (DLL)";
+    desc = "Accessed at offset 0 when LCR.DLAB = 1. Bits [7:0] of the
+16-bit divisor DL (uart_regs.v:533-547, 408).
+
+The baud generator counts down from DL - 1 and gives one 16x tick
+every DL clocks: baud = f(wb_clk_i) / (16 * DL). DL = 0 (the reset value)
+stops the ticks, and with them the transmitter and receiver.
+
+A DLL write restarts the counter at once, with the DLM value of that
+moment (start_dlc, uart_regs.v:545, 697). A DLM write does not restart
+it: the new DLM is used from the next reload. Write DLM first, then DLL,
+as the PDF says; the other order runs one period with the old DLM, up to
+65536 clocks (U24).";
+    field {
+        swmod;
+        desc = "Divisor bits [7:0].";
+    } DLL[7:0] = 0;
+} DLL @ (0 * `U2B0_STRIDE);
+
+reg {
+    name = "Divisor Latch, high byte (DLM)";
+    desc = "Accessed at offset 1 when LCR.DLAB = 1. Bits [15:8] of DL
+(uart_regs.v:483-494, 409). See DLL.";
+    field {
+        desc = "Divisor bits [15:8].";
+    } DLM[7:0] = 0;
+} DLM @ (1 * `U2B0_STRIDE);
+
+`endif

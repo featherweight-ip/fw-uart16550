@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://dv-flow.github.io/flow.dv.schema.json
+#
+# The as-built register map of the reference, U2B0 (u2b0_uart16550.rdl: the
+# registers in u2b0_regs.rdl on a 1-byte stride, in two address maps for the
+# two LCR.DLAB banks). It documents the reference (docs/reference/registers.md)
+# and is the starting point for fw-uart16550's own map. That map
+# (fw_uart16550_regs.rdl) and the fw-hdl and PSS models generated from it are
+# added in step 6.
+fragment:
+  tasks:
+  # Only the top wrapper: u2b0_regs.rdl is included by it, and is not a
+  # SystemRDL description on its own.
+  - export: rdl-src
+    uses: std.FileSet
+    with:
+      type: systemRDLSource
+      include:
+      - u2b0_uart16550.rdl
