@@ -468,6 +468,10 @@ Set up as fw-i2c: `ivpm update`, then once
 
 ## 8. Decisions needed
 
+Step 1 restates D3–D7 with answers proposed in `docs/design/index.md` §8
+(OI-1 = D3, OI-3 = D4, OI-6 = D5, OI-7 = D6, OI-8 = D7) and adds OI-2, OI-4,
+OI-5, OI-9, OI-10. Record the answers there.
+
 | ID | Question | Recommendation |
 |---|---|---|
 | D1 | Reference pin: `2b0ad80` (HEAD, includes the timeout fix) or `rel_4` | `2b0ad80` |
@@ -483,8 +487,8 @@ Set up as fw-i2c: `ivpm update`, then once
 
 | # | Step | Output | Status |
 |---|---|---|---|
-| 0 | Fork `oc-uart16550`, pin U2B0, `fw` patch set. Reference spec (as-built) and register map in SystemRDL. Baseline synthesis script and per-block area. Re-run the shipped bench (U11). | `docs/reference/`, `src/rdl/u2b0_regs.rdl`, `scripts/synth-baseline.sh` | **done 2026-10-21**. Fork `../oc-uart16550` (tags `u2b0`, `u2b0-fw1` = ef67d27, branch `fw-u2b0`, pushed; equivalent and area-identical to `u2b0`). Upstream bench (U11) reproduces the shipped log. Shim `src/ref/oc_uart16550_wb32.sv` + `src/ref/flow.yaml` (`ref-rtl`, `ref-rtl-32`; wired into a root flow.yaml in step 4), Verilator-clean. `scripts/synth-baseline.sh` (configs 8/32/shim, 11-seed median via `scripts/perturb_rtl.py`, shim own cells = 0): baseline §2, budget §6.2. Reference spec `docs/reference/` (12 pages; RTL-read claims marked *(to confirm)*, for step 4) and RDL `src/rdl/u2b0_regs.rdl` + `u2b0_uart16550.rdl` (two addrmaps, DLAB = 0 and DLAB = 1; peakrdl-clean) + `src/rdl/flow.yaml` (rdl-src only). New quirks U13–U26. Open: create the fw-uart16550 remote (D8). |
-| 1 | Review this plan, answer D1–D8, write the design doc (fw-i2c `docs/design/index.md` shape) | `docs/design/index.md` | not started |
+| 0 | Fork `oc-uart16550`, pin U2B0, `fw` patch set. Reference spec (as-built) and register map in SystemRDL. Baseline synthesis script and per-block area. Re-run the shipped bench (U11). | `docs/reference/`, `src/rdl/u2b0_regs.rdl`, `scripts/synth-baseline.sh` | **done 2026-10-21**. Fork `../oc-uart16550` (tags `u2b0`, `u2b0-fw1` = ef67d27, branch `fw-u2b0`, pushed; equivalent and area-identical to `u2b0`). Upstream bench (U11) reproduces the shipped log. Shim `src/ref/oc_uart16550_wb32.sv` + `src/ref/flow.yaml` (`ref-rtl`, `ref-rtl-32`; wired into a root flow.yaml in step 4), Verilator-clean. `scripts/synth-baseline.sh` (configs 8/32/shim, 11-seed median via `scripts/perturb_rtl.py`, shim own cells = 0): baseline §2, budget §6.2. Reference spec `docs/reference/` (12 pages; RTL-read claims marked *(to confirm)*, for step 4) and RDL `src/rdl/u2b0_regs.rdl` + `u2b0_uart16550.rdl` (two addrmaps, DLAB = 0 and DLAB = 1; peakrdl-clean) + `src/rdl/flow.yaml` (rdl-src only). New quirks U13–U26. Remote: `featherweight-ip/fw-uart16550` on the local Forgejo (pushed 2026-10-21, 15410c3). |
+| 1 | Review this plan, answer D1–D8, write the design doc (fw-i2c `docs/design/index.md` shape) | `docs/design/index.md` | draft written 2026-10-21, **waiting for review**: open issues OI-1–OI-10 in index.md §8 (D3–D7 map to OI-1, OI-3, OI-6–OI-8). Findings that change the plan: `fw_channel` does not lower (FIFO = in-repo packed class, §3.4); R1 exists and R2/R3 go in the model's `access()`, so step 6 needs no tool work (§4); single-writer state rule for the concurrent processes (§3.2); fwvip-wb already avoids U13. |
 | 2 | `fw-proto-uart`: restructure to kit conventions; K4, K6 with their K9 tests; lint, CI, formal, skill (K1–K3, K5, K7, K8 in step 7) | fw-proto-uart main | not started |
 | 3 | `fwvip-uart`: tx/rx/mon agents on the step-2 kit API, sequences, b2b and teeth tests, docs, skill | fwvip-uart main | not started |
 | 4 | dfm flow and `ref` view on Verilator with fwvip-wb + fwvip-uart; confirmation tests U1–U12; `lint-rtl` clean | `tests/uvm/`, `docs/reference/deviations.md` | not started |
