@@ -160,9 +160,10 @@ class fw_uart16550_base_test extends uvm_test;
     endtask
 
     // The next character the DUT transmitted, or null if none within
-    // `max_clocks`. Polls instead of forking a timeout: Verilator gives a
-    // fork's branches copies of the caller's automatic variables, so a
-    // result set in a branch does not reach the caller.
+    // `max_clocks`. Polls instead of forking a timeout: in Verilator 5.052
+    // a class handle filled by a task call inside a fork ... join_any branch
+    // does not reach the caller (an int does; see
+    // scripts/repro/verilator_fork_handle_out.sv).
     task rx_get(output fwvip_uart_char t, input int unsigned max_clocks = 0);
         int unsigned n = 0;
         if (max_clocks == 0) max_clocks = 4 * char_clocks() + 1000;

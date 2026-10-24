@@ -53,10 +53,14 @@ Results: {doc}`../reference/verification`.
 
 Things a later session needs to know:
 
-- **Verilator and fork.** A `fork ... join_any` branch gets copies of the
-  caller's automatic variables, so a result set in a branch never reaches
-  the caller. `rx_get()` polls instead. Use class members, not locals, for
-  anything a forked branch writes (`track()` does).
+- **Verilator and fork.** In Verilator 5.052, a class-handle variable of
+  the enclosing task, passed as the output of a task call inside a
+  `fork ... join_any` branch, is not written back (an `int` is; a direct
+  assignment in the branch is; plain `fork ... join` is). Not LRM
+  behaviour. Repro: `scripts/repro/verilator_fork_handle_out.sv`.
+  `rx_get()` polls instead of forking a timeout. (An earlier version of
+  this note said forks copy all automatic variables; a repro showed that
+  was wrong.)
 - **The probe lags by a clock.** A sample holds the values from the clock
   before the edge it was taken at. After a `reg_write`, wait 2 clocks before
   checking a count the write changes.
