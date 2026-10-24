@@ -1,0 +1,112 @@
+# Lint waivers for fw-uart16550. Every waiver says why the finding is
+# intended. The reference core (packages/oc-uart16550, U2B0 with the fw
+# patch set) is waived, not patched: a logically identical rewrite can still
+# move its Yosys area (plan §2.1). Each waiver is pinned to its line, so a
+# new finding in the same file is not hidden.
+waivers:
+# ---- reference core: coding style, no effect on behaviour
+- rule: CASEX
+  path: "**/oc-uart16550/rtl/verilog/uart_transmitter.v"
+  line: 321
+  reason: >-
+    casex on {stop bits, word length}, which are never X or Z in a reset
+    design; casez would be the same.
+- rule: DEFPARAM
+  path: "**/oc-uart16550/rtl/verilog/uart_regs.v"
+  line: 388
+  reason: The srx synchronizer's width set by defparam, as U2B0 is written.
+- rule: DEFPARAM
+  path: "**/oc-uart16550/rtl/verilog/uart_regs.v"
+  line: 389
+  reason: The srx synchronizer's reset value set by defparam, as U2B0 is written.
+- rule: IMPLICIT
+  path: "**/oc-uart16550/rtl/verilog/uart_regs.v"
+  line: 397
+  reason: >-
+    rf_overrun and rf_push_pulse are implicit 1-bit nets in the receiver's
+    port list; both are 1-bit outputs of uart_receiver, so the implicit net
+    has the right width.
+- rule: WIDTHEXPAND
+  path: "**/oc-uart16550/rtl/verilog/uart_regs.v"
+  line: 406
+  reason: >-
+    IER read returns the 4-bit ier zero-extended to 8 bits: IER[7:4] read 0,
+    as the reference specification says.
+- rule: WIDTHEXPAND
+  path: "**/oc-uart16550/rtl/verilog/uart_rfifo.v"
+  line: 208
+  reason: A 4-bit FIFO pointer reset with 1'b0 (zero-extended).
+- rule: WIDTHEXPAND
+  path: "**/oc-uart16550/rtl/verilog/uart_rfifo.v"
+  line: 230
+  reason: A 4-bit FIFO pointer reset with 1'b0 (zero-extended).
+- rule: WIDTHEXPAND
+  path: "**/oc-uart16550/rtl/verilog/uart_tfifo.v"
+  line: 197
+  reason: A 4-bit FIFO pointer reset with 1'b0 (zero-extended).
+- rule: WIDTHEXPAND
+  path: "**/oc-uart16550/rtl/verilog/uart_tfifo.v"
+  line: 203
+  reason: A 4-bit FIFO pointer reset with 1'b0 (zero-extended).
+- rule: WIDTHEXPAND
+  path: "**/oc-uart16550/rtl/verilog/uart_transmitter.v"
+  line: 311
+  reason: A 5-bit counter reset with 4'b0 (zero-extended).
+
+# ---- reference core: unused signals (docs/reference/deviations.md, lint notes)
+- rule: UNUSEDSIGNAL
+  path: "**/oc-uart16550/rtl/verilog/uart_receiver.v"
+  line: 222
+  reason: rbit_in is assigned only in reset and never read.
+- rule: UNUSEDSIGNAL
+  path: "**/oc-uart16550/rtl/verilog/uart_receiver.v"
+  line: 255
+  reason: rcounter16_eq_1 is declared and never read.
+- rule: UNUSEDSIGNAL
+  path: "**/oc-uart16550/rtl/verilog/uart_transmitter.v"
+  line: 155
+  reason: The transmitter takes the whole LCR and does not use DLAB (LCR[7]).
+- rule: UNUSEDSIGNAL
+  path: "**/oc-uart16550/rtl/verilog/uart_transmitter.v"
+  line: 180
+  reason: The TX FIFO's overrun flag is not used (U15).
+- rule: UNUSEDSIGNAL
+  path: "**/oc-uart16550/rtl/verilog/uart_regs.v"
+  line: 366
+  reason: >-
+    The receiver state, rstate, goes only to the debug interface, which the
+    8-bit configuration does not have.
+- rule: UNUSEDSIGNAL
+  path: "**/oc-uart16550/rtl/verilog/uart_top.v"
+  line: 168
+  reason: wb_sel_i is ignored in the 8-bit configuration (DATA_BUS_WIDTH_8).
+- rule: UNUSEDSIGNAL
+  path: "**/oc-uart16550/rtl/verilog/uart_top.v"
+  line: 198
+  reason: The debug word, wb_dat32_o, exists only in the 32-bit configuration.
+- rule: UNUSEDSIGNAL
+  path: "**/oc-uart16550/rtl/verilog/uart_wb.v"
+  line: 172
+  reason: The debug word input is tied to 0 and unused in the 8-bit configuration.
+- rule: UNUSEDSIGNAL
+  path: "**/oc-uart16550/rtl/verilog/uart_wb.v"
+  line: 182
+  reason: >-
+    The registered address's two LSBs are replaced by the lane from wb_sel_i
+    in the 32-bit configuration (U10).
+- rule: UNUSEDSIGNAL
+  path: "**/oc-uart16550/rtl/verilog/uart_wb.v"
+  line: 186
+  reason: The registered wb_sel_i is used only in the 32-bit configuration.
+
+# ---- the shim
+- rule: UNUSEDSIGNAL
+  path: "src/ref/oc_uart16550_wb32.sv"
+  line: 33
+  reason: >-
+    One register per 32-bit word: the core sees wb_adr_i[4:2], and the byte
+    offset bits [1:0] are ignored (plan §2.1).
+- rule: UNUSEDSIGNAL
+  path: "src/ref/oc_uart16550_wb32.sv"
+  line: 34
+  reason: The registers are one byte wide; writes take wb_dat_i[7:0] (plan §2.1).

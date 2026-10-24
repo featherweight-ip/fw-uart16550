@@ -1,11 +1,53 @@
 # Verification status
 
-Nothing in this specification has been confirmed on the `ref` view yet.
-The `ref` view (step 4: dfm flow on Verilator, fwvip-wb initiator on the
-shim, fwvip-uart on the serial and modem pins) will run one directed test
-per item in {doc}`deviations`, as fw-i2c did for D1–D10. Each test asserts
-the behaviour recorded there, so it fails if U2B0 does anything else. The
-results go into the status column of {doc}`deviations`.
+Every item in {doc}`deviations` except U10 (the 32-bit configuration,
+step 11) was confirmed on the `ref` view on 2026-10-24. Each test asserts
+the behaviour recorded there, so it fails if U2B0 does anything else.
+
+The `ref` view (`dfm run tests`; bench plan in
+{doc}`../design/ref-bench`) is U2B0 behind the 32-bit shim, on Verilator.
+Around it:
+
+- a fw-proto-wb initiator on the register port, which leaves an idle clock
+  between accesses (so U13 never happens by accident);
+- a bench driver that can start an access in the clock after the previous
+  ack (for U13 only);
+- the fwvip-uart agents on `srx` and `stx`, with a monitor on each line;
+- the modem input pads, and an `srx` override, driven from the test clock
+  by clock;
+- a probe that samples the core's internals every clock: register strobes,
+  FIFO counts, pushes and pops, LSR, the pending flags, `block_cnt`, the
+  receiver and transmitter states, and the baud divider.
+
+## Results
+
+| Test (`ref-…`) | Items | What it does |
+|---|---|---|
+| `regs` | reset values, U1, U2, U3, U25 | register reads and writes in both DLAB states |
+| `modem` | U8, U9, U22, U23 | pads and MCR in normal and loopback mode |
+| `bus` | U13 | two writes and two RBR reads with 0 and 1 idle clocks between them |
+| `baud` | U24 | tick intervals after DLL and DLM writes, from reset and from DL = 0 |
+| `rx-fifo` | U5, U14, U18, U19, U16, U17 | overrun; two errored characters in a row; an RBR read swept over 48 clock offsets of a push (U16, U17) |
+| `irq` | U21, U20, U7 | RX FIFO reset and trigger raise with RDA pending; an RBR read at the trigger level swept over 48 offsets of a push (U20) |
+| `tx` | U6, U11, U15, U26 | THRE measured for six framings; 18 writes to a slow transmitter; a TX FIFO reset in `s_pop_byte`, and a THR write swept over 32 offsets of the pop (U26) |
+| `rx` | U4, U12 | `srx` driven by the test: a one-clock pulse at each of 16 positions in a bit; breaks after a clean and after an FE character |
+
+The swept tests find the clock where the race happens from the probe (a
+push and a pop in one clock), not from a computed bus latency. Each also
+checks the cases next to that clock, where the race does not happen.
+Offsets that hit: U16 and U17 at 5 clocks after the receiver entered its
+stop-bit state, U20 at 5 and 6, U26 at 24 clocks after the TX FIFO reset
+(divisor 32).
+
+**Teeth.** With each of four mutations of the reference RTL, exactly the
+test meant to catch it failed:
+
+| Mutation | Failed |
+|---|---|
+| MCR readable (U1) | `ref-regs` |
+| RX FIFO RAM write gated by the count (no U14) | `ref-rx-fifo` |
+| `int_o` from the RDA level instead of the pending flag (no U20/U21) | `ref-irq` |
+| `block_value` 150 instead of 143 for LCR[3:0] = 1101 | `ref-tx` |
 
 ## Upstream testbench
 
@@ -19,7 +61,7 @@ bench-only `#0` race workarounds. With `DATA_BUS_WIDTH_8` it reproduces the
 shipped report exactly, on `u2b0` and `u2b0-fw1`. In the default 32-bit
 configuration it fails at initialization (U10). See U11 for the analysis.
 
-## Planned confirmation tests (step 4)
+## Confirmation tests as planned (step 4)
 
 Probes: the `ref` top should export the core's register strobes
 (`we_o`, `re_o`), `enable`, `rf_count`, `tf_count`, the pending flags and
@@ -48,6 +90,8 @@ push or a pop.
 | U25 | LSR, MSR and IIR reads with DLAB = 1 clear nothing |
 | U26 | FCR[2] in the window between idle and pop_byte; check the byte sent |
 
-Timing statements marked **(to confirm)** in {doc}`timing` (TX latency,
-TEMT, RX sampling points, TI and break times) are checked with the
-fwvip-uart monitor in the same tests.
+Timing statements in {doc}`timing` confirmed by these tests: the THRE
+hold-off table (six rows), the DLL restart (first tick DL + 2 clocks after
+the write strobe), and the break time (U12). The others (TX latency, TEMT,
+the RX sample points per bit, TI) are still **(to confirm)**; the probe
+and the fwvip-uart monitor make them a small addition.

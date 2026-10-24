@@ -138,7 +138,7 @@ every clock (`uart_wb.v:228-243`) and works from the registered copies. A
 }
 ```
 
-Notes **(to confirm)**:
+Notes (U13 confirmed on the `ref` view; the clock counts still **(to confirm)**):
 
 - An access takes 3 clocks, with `wb_ack_o` in the third. The master
   must leave **at least one idle clock** (STB low) between accesses. An

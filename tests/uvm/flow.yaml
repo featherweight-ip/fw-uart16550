@@ -1,0 +1,91 @@
+# yaml-language-server: $schema=https://dv-flow.github.io/flow.dv.schema.json
+#
+# The UVM bench (docs/design/ref-bench.md): one env and one set of tests
+# (env/, tests/), and one image per view (tb/). An image is a pair of tops
+# from the project's view_tb/view_top maps; `images` picks the views the
+# universal matrix runs.
+fragment:
+  name: uvm
+  tasks:
+  # The env and tests packages, compiled once, after the protocol kits and
+  # the UART VIP.
+  - name: uvm-env
+    uses: project.dv.uvm.utils.env-base
+    needs:
+    - fw.proto.wb.files
+    - fw.proto.uart.files
+    - org.fwvip.uart.vip-uvm-hvlsrc
+    - org.fwvip.core.clock-reset-xtor
+    - "flags-comp-${{ build }}"
+
+  # Each view's design sources. `ref` is U2B0 behind the 32-bit shim.
+  - { name: view-src-ref, passthrough: all, consumes: none, needs: [ref-rtl] }
+
+  - root: sim-img
+    desc: Simulation image for one view
+    with:
+      view:
+        type: str
+        value: ref
+        cli: true
+        values: [ref]
+        doc: View to build
+    strategy:
+      select:
+        axes:
+          view: [ref]
+        default: {view: "${{ view }}"}
+      body:
+      - uses: project.dv.uvm.utils.tb-img
+        needs:
+        - uvm-env
+        - "view-src-${{ this.view }}"
+        - "flags-comp-${{ build }}"
+        - "flags-elab-${{ build }}"
+        with:
+          tb_include: "${{ view_tb[this.view] }}"
+          top:        "${{ view_top[this.view] }}"
+
+  # The common tests, on every view in `images`.
+  - name: uvm-universal
+    strategy:
+      matrix:
+        image: "${{ images }}"
+        case:
+        - { name: smoke, testname: fw_uart16550_smoke_test, plusargs: [] }
+    body:
+    - name: "${{ this.image }}-${{ this.case.name }}"
+      uses: hdlsim.vlt.SimUVMCase
+      needs:
+      - "sim-img.${{ this.image }}"
+      - "flags-run-${{ build }}"
+      with:
+        name: "${{ this.image }}-${{ this.case.name }}"
+        testname: "${{ this.case.testname }}"
+        plusargs: "${{ this.case.plusargs }}"
+
+  # The reference confirmation tests (docs/reference/verification.md): U2B0
+  # alone, with the probe the `ref` top publishes. Results:
+  # docs/reference/deviations.md.
+  - name: uvm-ref-only
+    strategy:
+      matrix:
+        case:
+        - { name: regs,    testname: fw_uart16550_ref_regs_test,    plusargs: [] }
+        - { name: modem,   testname: fw_uart16550_ref_modem_test,   plusargs: [] }
+        - { name: bus,     testname: fw_uart16550_ref_bus_test,     plusargs: [] }
+        - { name: baud,    testname: fw_uart16550_ref_baud_test,    plusargs: [] }
+        - { name: rx-fifo, testname: fw_uart16550_ref_rx_fifo_test, plusargs: [] }
+        - { name: irq,     testname: fw_uart16550_ref_irq_test,     plusargs: [] }
+        - { name: tx,      testname: fw_uart16550_ref_tx_test,      plusargs: [] }
+        - { name: rx,      testname: fw_uart16550_ref_rx_test,      plusargs: [] }
+    body:
+    - name: "ref-${{ this.case.name }}"
+      uses: hdlsim.vlt.SimUVMCase
+      needs:
+      - "sim-img.ref"
+      - "flags-run-${{ build }}"
+      with:
+        name: "ref-${{ this.case.name }}"
+        testname: "${{ this.case.testname }}"
+        plusargs: "${{ this.case.plusargs }}"

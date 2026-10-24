@@ -1,0 +1,77 @@
+# dv-flow (dfm) project file for fw-uart16550.
+#
+#   dfm run tests      Every simulation case.
+#   dfm run smoke      The smoke case on every view.
+#   dfm run lint-rtl   Verilator lint of the RTL (reference core + shim, and
+#                      the core in its 32-bit configuration).
+#
+# Views (plan §5): step 4 has `ref` only (docs/design/ref-bench.md). The
+# others are added as the plan in docs/design/plan.md proceeds.
+package:
+  name: org.fwip.uart16550
+
+  # The DV archetype (dv-flow-libproject): the standard verbs (tests, smoke,
+  # lint-rtl, tests-info, --sim, --build).
+  uses: project.dv.uvm
+  package-map: "${{ env.IVPM_PACKAGES }}/dv-flow-package-map.yaml"
+
+  with:
+    images:
+      type: list
+      value: [ref]
+      values: [ref]
+      cli: true
+      desc: Views the universal tests run on (plan §5)
+    view_tb:
+      type: map
+      value:
+        ref: [oc_uart16550_ref_arm.sv, hdl_top_ref.sv, hvl_top_ref.sv]
+    view_top:
+      type: map
+      value:
+        ref: [hvl_top_ref]
+
+  imports:
+  - project.dv.uvm
+  - hdlsim
+  - hdllint
+  - fw.proto.wb
+  - fw.proto.uart
+  - fw-hdl
+  - org.fwvip.core
+  - org.fwvip.uart
+
+  fragments:
+  - src/ref/flow.yaml
+  - tests/uvm/flow.yaml
+
+  tasks:
+  - override: src-rtl
+    needs: [ref-rtl]
+
+  - override: lint-rtl
+    needs: [lint, lint-32]
+
+  # The headline configuration: the 8-bit core behind the 32-bit shim.
+  - name: lint
+    uses: hdllint.Rtl
+    needs: [ref-rtl]
+    with:
+      top: [oc_uart16550_wb32]
+      waivers: lint-waivers.yaml
+
+  # The core's own 32-bit configuration, with the debug interface (step 11).
+  - name: lint-32
+    uses: hdllint.Rtl
+    needs: [ref-rtl-32]
+    with:
+      top: [uart_top]
+      waivers: lint-waivers.yaml
+
+  - override: tests
+    needs: [uvm.uvm-universal, uvm.uvm-ref-only]
+
+  - override: smoke
+    needs: [uvm.uvm-universal]
+    with:
+      tests: [uvm-universal.smoke]

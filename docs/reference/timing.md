@@ -1,7 +1,9 @@
 # Timing
 
 All timing below is from reading the RTL at `u2b0` and is
-**(to confirm)** in simulation unless stated. *T* is one `wb_clk_i`
+**(to confirm)** in simulation unless stated. Confirmed on the `ref` view
+(2026-10-24): the THRE hold-off table, the baud divider's restart, and the
+break time ({doc}`verification`). *T* is one `wb_clk_i`
 period. A tick is one baud-generator enable, every DL clocks; a bit is 16
 ticks.
 
@@ -31,8 +33,10 @@ the reference and `fw-uart16550` allows for this bus timing difference
 ## Baud tick
 
 `enable` is high for one clock every DL clocks, DL ≥ 1
-(`uart_regs.v:692-713`). After a DLL write the first tick comes DL clocks
-later, with the DL value of that moment (U24). With
+(`uart_regs.v:692-713`). After a DLL write the first tick comes DL + 2
+clocks after the write strobe (the strobe sets `start_dlc`, which loads the
+counter with DL - 1 a clock later), with the DL value of that moment
+(U24; confirmed). With
 `UART_HAS_BAUDRATE_OUTPUT`, `baud_o` is this tick.
 
 ## Transmitter

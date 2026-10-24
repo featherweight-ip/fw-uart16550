@@ -8,38 +8,40 @@ directed test on the `ref` view in step 4, planned in {doc}`verification`.
 The IDs are also used in the plan (U1–U12) and in the RDL.
 
 File:line references are to tag `u2b0`. "Status" is the state of
-confirmation. Nothing here has been simulated yet except U11.
+confirmation. Every item except U10 (32-bit configuration, step 11) was
+confirmed on the `ref` view on 2026-10-24 by the test named in its status
+({doc}`verification`).
 
 ## Summary
 
 | ID | Area | Summary | Kind | Status |
 |---|---|---|---|---|
-| U1 | Regs | MCR is write-only and reads 0 | quirk | to confirm (step 4) |
-| U2 | Regs | SCR exists; the PDF says it was removed | PDF wrong | to confirm (step 4) |
-| U3 | Regs | FIFOs always on; FCR[0] and DMA mode ignored; no 16450 mode | quirk (as PDF) | to confirm (step 4) |
-| U4 | RX | One sample per bit, at tick 7 of 16; no majority vote | quirk | to confirm (step 4) |
-| U5 | RX FIFO | Overrun: the incoming character's flags are dropped, the count does not change; but see U14 | quirk | to confirm (step 4) |
-| U6 | TX | THRE held off one character time minus a stop bit after a THR write with THRE = 1 | quirk | to confirm (step 4) |
-| U7 | IRQ | IIR shows RDA from the level; `int_o` uses a latch | quirk | to confirm (step 4) |
-| U8 | Modem | Loopback still drives RTS/DTR to the pads; no OUT1/OUT2 pins | quirk | to confirm (step 4) |
-| U9 | Modem | Modem inputs not synchronized | defect (CDC) | to confirm (step 4) |
+| U1 | Regs | MCR is write-only and reads 0 | quirk | confirmed 2026-10-24 (`ref-regs`) |
+| U2 | Regs | SCR exists; the PDF says it was removed | PDF wrong | confirmed 2026-10-24 (`ref-regs`) |
+| U3 | Regs | FIFOs always on; FCR[0] and DMA mode ignored; no 16450 mode | quirk (as PDF) | confirmed 2026-10-24 (`ref-regs`) |
+| U4 | RX | One sample per bit, at tick 7 of 16; no majority vote | quirk | confirmed 2026-10-24 (`ref-rx`) |
+| U5 | RX FIFO | Overrun: the incoming character's flags are dropped, the count does not change; but see U14 | quirk | confirmed 2026-10-24 (`ref-rx-fifo`) |
+| U6 | TX | THRE held off one character time minus a stop bit after a THR write with THRE = 1 | quirk | confirmed 2026-10-24 (`ref-tx`) |
+| U7 | IRQ | IIR shows RDA from the level; `int_o` uses a latch | quirk | confirmed 2026-10-24 (`ref-irq`) |
+| U8 | Modem | Loopback still drives RTS/DTR to the pads; no OUT1/OUT2 pins | quirk | confirmed 2026-10-24 (`ref-modem`) |
+| U9 | Modem | Modem inputs not synchronized | defect (CDC) | functional part confirmed 2026-10-24 (`ref-modem`); CDC not simulated |
 | U10 | Bus (32-bit) | Byte lane from `wb_sel_i`; non-one-hot `sel` reaches byte 0 of the word | quirk | to confirm (step 11) |
-| U11 | Bench | The shipped log fails "Bit 5 of LSR register not '1'" | bench | re-run 2026-10-21; reproduces; RTL side to confirm (step 4) |
-| U12 | RX | Break: a zero character with BI after one character time low; the FE character before it is lost | quirk | to confirm (step 4) |
-| U13 | Bus | A back-to-back access (no idle clock) is acked but not performed | **defect** | to confirm (step 4) |
-| U14 | RX FIFO | Overrun overwrites the head character's data byte | **defect** | to confirm (step 4) |
-| U15 | TX FIFO | A write to a full TX FIFO overwrites the next byte to send | defect | to confirm (step 4) |
-| U16 | RX FIFO | Pop of an empty FIFO in the clock of a push loses the character and leaves LSR.DR stuck at 1 | **defect** | to confirm (step 4) |
-| U17 | RX FIFO | Push and pop together leave the popped entry's error flags set | defect | to confirm (step 4) |
-| U18 | LSR | PE/FE/BI are edge-set: the second of two errored characters in a row is not reported | **defect** | to confirm (step 4) |
-| U19 | LSR | LSR[7] is cleared by a read while errors remain in the FIFO, and not set again | defect | to confirm (step 4) |
-| U20 | IRQ | RDA interrupt lost if a character arrives in the 2-clock window of the RBR read at the trigger level | **defect** | to confirm (step 4) |
-| U21 | IRQ | RDA pending flag stuck after an RX FIFO reset or a raised trigger level: `int_o` = 1, IIR = 0xC1 | **defect** | to confirm (step 4) |
-| U22 | Modem | MSR deltas follow the pads even in loopback; TERI set on both edges of RI | quirk | to confirm (step 4) |
-| U23 | Modem | Modem pins active high; the PDF gives active low | PDF wrong | to confirm (step 4) |
-| U24 | Baud | Only a DLL write restarts the divider; a later DLM write waits for the next reload (up to 65536 clocks) | quirk | to confirm (step 4) |
-| U25 | Regs | With DLAB = 1, IIR, LSR and MSR reads have no side effects | quirk | to confirm (step 4) |
-| U26 | TX FIFO | TX FIFO reset within one tick of the transmitter leaving idle sends a stale byte, and can lose a byte written then | defect (race) | to confirm (step 4) |
+| U11 | Bench | The shipped log fails "Bit 5 of LSR register not '1'" | bench | confirmed 2026-10-24 (`ref-tx`) |
+| U12 | RX | Break: a zero character with BI after one character time low; the FE character before it is lost | quirk | confirmed 2026-10-24 (`ref-rx`) |
+| U13 | Bus | A back-to-back access (no idle clock) is acked but not performed | **defect** | confirmed 2026-10-24 (`ref-bus`) |
+| U14 | RX FIFO | Overrun overwrites the head character's data byte | **defect** | confirmed 2026-10-24 (`ref-rx-fifo`) |
+| U15 | TX FIFO | A write to a full TX FIFO overwrites the next byte to send | defect | confirmed 2026-10-24 (`ref-tx`) |
+| U16 | RX FIFO | Pop of an empty FIFO in the clock of a push loses the character and leaves LSR.DR stuck at 1 | **defect** | confirmed 2026-10-24 (`ref-rx-fifo`) |
+| U17 | RX FIFO | Push and pop together leave the popped entry's error flags set | defect | confirmed 2026-10-24 (`ref-rx-fifo`) |
+| U18 | LSR | PE/FE/BI are edge-set: the second of two errored characters in a row is not reported | **defect** | confirmed 2026-10-24 (`ref-rx-fifo`) |
+| U19 | LSR | LSR[7] is cleared by a read while errors remain in the FIFO, and not set again | defect | confirmed 2026-10-24 (`ref-rx-fifo`) |
+| U20 | IRQ | RDA interrupt lost if a character arrives in the 2-clock window of the RBR read at the trigger level | **defect** | confirmed 2026-10-24 (`ref-irq`) |
+| U21 | IRQ | RDA pending flag stuck after an RX FIFO reset or a raised trigger level: `int_o` = 1, IIR = 0xC1 | **defect** | confirmed 2026-10-24 (`ref-irq`) |
+| U22 | Modem | MSR deltas follow the pads even in loopback; TERI set on both edges of RI | quirk | confirmed 2026-10-24 (`ref-modem`) |
+| U23 | Modem | Modem pins active high; the PDF gives active low | PDF wrong | confirmed 2026-10-24 (`ref-modem`) |
+| U24 | Baud | Only a DLL write restarts the divider; a later DLM write waits for the next reload (up to 65536 clocks) | quirk | confirmed 2026-10-24 (`ref-baud`) |
+| U25 | Regs | With DLAB = 1, IIR, LSR and MSR reads have no side effects | quirk | confirmed 2026-10-24 (`ref-regs`) |
+| U26 | TX FIFO | TX FIFO reset within one tick of the transmitter leaving idle sends a stale byte, and can lose a byte written then | defect (race) | confirmed 2026-10-24 (`ref-tx`) |
 
 "Defect" means behaviour a 16550 driver does not expect and that can lose
 data or hang an interrupt. "Quirk" means a documented or harmless
@@ -54,7 +56,8 @@ difference. Bold defects are the ones most likely to show up in normal use.
   is stored (`uart_regs.v:516-521`).
 - **PDF.** §4.6 marks every MCR bit "W". It does not say what a read returns.
 - **NS16550A.** MCR is read-write.
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-regs`): MCR reads 0 after writes of
+  0x03 and 0x00; the RTS and DTR pads follow the written bits.
 
 ### U2: SCR exists
 
@@ -62,7 +65,8 @@ difference. Bold defects are the ones most likely to show up in normal use.
   (`uart_regs.v:523-530`, 414).
 - **PDF.** §5: "The scratch register is removed, as it serves no purpose."
   §4.1 does not list it.
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-regs`): SCR reads back 0xA5 and
+  0x5A; reset 0.
 
 ### U3: FIFOs always on
 
@@ -72,7 +76,8 @@ difference. Bold defects are the ones most likely to show up in normal use.
   FIFO-disabled path anywhere.
 - **PDF.** §1 "FIFO only operation"; §4.4 bit 0 ignored. Same as the RTL.
 - **NS16550A.** FCR[0] = 0 gives 16450 mode; FCR[3] selects DMA mode 1.
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-regs`): after FCR = 0x00, IIR reads
+  0xC1 and three characters wait in the RX FIFO with no overrun.
 
 ### U4: one sample per bit
 
@@ -82,7 +87,12 @@ difference. Bold defects are the ones most likely to show up in normal use.
   stop bit is sampled one tick early (see {doc}`timing`).
 - **PDF.** §5.1: sampling "is performed in the perceived middle of the bit
   time".
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-rx`, divisor 1: a tick every
+  clock). A one-clock high pulse inside a low data bit flips it at exactly
+  one of the 16 positions: clock 8 after the bit's edge (the start edge and
+  the pulse go through the same synchronizer, so its delay cancels). A
+  majority vote would need two samples. The shortest low pulse on an idle
+  line that starts a character is 9 clocks.
 
 ### U5: overrun drops the incoming character
 
@@ -93,7 +103,9 @@ difference. Bold defects are the ones most likely to show up in normal use.
   incoming character is not cleanly dropped.
 - **PDF.** LSR[1]: "it will overwrite the data in the shift register but
   the FIFO will remain intact".
-- **Status.** To confirm by simulation (step 4), together with U14.
+- **Status.** Confirmed 2026-10-24 (`ref-rx-fifo`) with U14: after a 17th
+  character (with a parity error), LSR = 0xE3 (OE and LSR[7], no PE), the
+  count stays 16, and no PE is reported for it at any point.
 
 ### U6: THRE hold-off
 
@@ -106,8 +118,11 @@ difference. Bold defects are the ones most likely to show up in normal use.
 - **PDF.** LSR[5]: "'1' – The transmitter FIFO is empty"; no delay.
 - **NS16550A.** THRE rises when the byte moves to the shift register, at
   once if the transmitter is idle.
-- **Status.** To confirm by simulation (step 4). It is the likely cause of
-  U11.
+- **Status.** Confirmed 2026-10-24 (`ref-tx`) for 8N1, 5N1, 5N1.5, 7E1, 8E2
+  and 6E2 at divisors 1 to 3: THRE rises `block_value` + 1 ticks after the
+  TX FIFO push (144 for 8N1; the count of ticks seen is `block_value` or
+  `block_value` + 1 depending on whether the clock after the count reaches 0
+  is also a tick). This is one bit time before the end of the character.
 
 ### U7: RDA uses the level
 
@@ -121,7 +136,8 @@ difference. Bold defects are the ones most likely to show up in normal use.
   rising edge (`uart_regs.v:790-794, 804-837`). U20 and U21 are
   consequences.
 - **PDF.** §4.3: RDA reset control "FIFO drops below trigger level".
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-irq`), through U20 (`int_o` 0 while
+  IIR reads 0xC4) and U21 (`int_o` 1 while IIR reads 0xC1).
 
 ### U8: loopback and the modem outputs
 
@@ -131,7 +147,9 @@ difference. Bold defects are the ones most likely to show up in normal use.
   has no OUT1/OUT2 ports (`uart_top.v:149-152`).
 - **PDF.** §4.6 bit 4: STX_PAD_O is set to '1'; nothing about RTS/DTR.
 - **NS16550A.** In loopback the modem outputs are forced inactive.
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-modem`): with MCR = 0x1F
+  (loopback), RTS and DTR stay 1 on the pads, `stx_pad_o` stays at mark (the
+  monitor on stx sees no character), and a THR byte comes back in RBR.
 
 ### U9: modem inputs not synchronized
 
@@ -142,8 +160,9 @@ difference. Bold defects are the ones most likely to show up in normal use.
   edge can set a delta bit without the change showing in MSR[7:4], or the
   reverse, and is a metastability risk.
 - **PDF.** Silent.
-- **Status.** To confirm by simulation (step 4) (the functional part:
-  deltas on a pad change). Metastability is not simulated.
+- **Status.** Confirmed 2026-10-24 (`ref-modem`), the functional part: a
+  change on each of CTS, DSR, RI and DCD sets its delta bit. Metastability
+  is not simulated.
 
 ### U10: 32-bit byte lanes
 
@@ -174,8 +193,9 @@ difference. Bold defects are the ones most likely to show up in normal use.
   THRE 1.23 ms before the RTL raises it (`block_cnt` = 143 at LCR = 0x03,
   U6). In the default 32-bit configuration the bench fails at
   initialization instead (U10).
-- **Status.** Bench result recorded. That the RTL's THRE timing is the
-  U6 hold-off and nothing else: to confirm on the `ref` view (step 4).
+- **Status.** Bench result recorded. Confirmed 2026-10-24 (`ref-tx`): on the
+  `ref` view the THRE timing after a single THR write is the U6 hold-off and
+  nothing else.
 
 ### U12: break
 
@@ -193,7 +213,11 @@ difference. Bold defects are the ones most likely to show up in normal use.
   break.
 - **PDF.** LSR[4]: "one zero character enters the FIFO and the UART waits
   for a valid start bit".
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-rx`): a character then a
+  two-character break gives the character and one 0x00 with BI alone (no FE,
+  no PE). A frame with a space stop bit followed by two character times low
+  gives only the break character (the FE character is lost). The same frame
+  followed by only four bit times low gives the character with FE and no BI.
 
 ## Found while writing this specification (U13–U26)
 
@@ -214,7 +238,10 @@ difference. Bold defects are the ones most likely to show up in normal use.
 - **Impact.** A WISHBONE Classic master may start a new cycle straight after
   an ack. The fwvip-wb initiator in the `ref` bench must leave one idle
   clock between accesses, except in the test for U13.
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-bus`, with a bench driver that can
+  start the next access in the clock after the ack): with no idle clock, a
+  second SCR write is lost and a second RBR read does not pop (it returned
+  the value then at the head); with one idle clock both are performed.
 
 ### U14: RX overrun overwrites the head character
 
@@ -226,7 +253,9 @@ difference. Bold defects are the ones most likely to show up in normal use.
   head keeps its own error flags. RBR then returns the newest byte where
   the oldest should be, and that byte's own error flags are lost.
 - **PDF.** LSR[1]: "the FIFO will remain intact".
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-rx-fifo`): the first RBR read after
+  the overrun returns the 17th byte (0xEE); the next 15 reads return
+  characters 2 to 16.
 
 ### U15: write to a full TX FIFO overwrites the next byte
 
@@ -237,7 +266,9 @@ difference. Bold defects are the ones most likely to show up in normal use.
   `uart_transmitter.v:183, 195`).
 - **PDF.** Silent.
 - **NS16550A.** Writing to a full TX FIFO loses the written byte.
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-tx`, divisor 16): with 16 bytes
+  waiting, an 18th write leaves the count at 16 and is sent in place of the
+  second byte.
 
 ### U16: pop of an empty RX FIFO with a push loses the character
 
@@ -253,7 +284,10 @@ difference. Bold defects are the ones most likely to show up in normal use.
 - **When.** An RBR read on an empty FIFO (Linux does this during startup
   to clear the port) whose pop (one clock after the access) lands in the
   clock of a receiver push.
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-rx-fifo`): an empty RBR read swept
+  over 48 clock offsets; at the offset where its pop met the push, the count
+  stayed 0 and LSR.DR stayed 1, also after a further RBR read. At the other
+  offsets the character was either waiting or read.
 
 ### U17: push and pop together leave stale error flags
 
@@ -264,7 +298,10 @@ difference. Bold defects are the ones most likely to show up in normal use.
   character has been read, until `top` writes that entry again (up to 15
   pushes later). That holds LSR[7]'s condition high: LSR[7] is not set by
   a new error in that time (U19).
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-rx-fifo`): a parity-error character
+  popped in the clock of a clean character's push leaves the FIFO's error
+  bit at 1 with only the clean character inside. Popped alone, the error bit
+  clears.
 
 ### U18: LSR PE, FE, BI are set on edges of the head's flags
 
@@ -277,7 +314,9 @@ difference. Bold defects are the ones most likely to show up in normal use.
   character's error is not reported.
 - **PDF.** LSR[2]: "The character that is currently at the top of the
   FIFO has been received with parity error."
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-rx-fifo`): with two parity-error
+  characters then a clean one, LSR reads 0xE5, then (after the first RBR
+  read) 0x61 with the second PE character at the head.
 
 ### U19: LSR[7] is cleared while errors remain
 
@@ -292,7 +331,9 @@ difference. Bold defects are the ones most likely to show up in normal use.
   follows the second.
 - **NS16550A.** LSR[7] is cleared by the read only if there are no more
   errors in the FIFO.
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-rx-fifo`): LSR[7] is 0 after the
+  first LSR read while the second errored character is still in the FIFO. A
+  new error after the FIFO has emptied sets it again.
 
 ### U20: RDA interrupt lost in the read window
 
@@ -307,7 +348,11 @@ difference. Bold defects are the ones most likely to show up in normal use.
   trigger level and a refill raise it again. Under continuous traffic the
   RX FIFO can overrun.
 - **PDF.** RDA reset: "FIFO drops below trigger level".
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-irq`, trigger 4, divisor 1): an RBR
+  read at the trigger level swept over 48 clock offsets of a fifth
+  character's arrival. At the offsets where the push met the read's strobe
+  or pop clock, `int_o` fell with four characters in the FIFO and IIR =
+  0xC4. At every other offset `int_o` stayed 1.
 
 ### U21: RDA pending flag stuck
 
@@ -320,7 +365,9 @@ difference. Bold defects are the ones most likely to show up in normal use.
   reads 0xC1 (or a lower source). A driver that sees "no interrupt" in IIR
   leaves a level interrupt asserted; Linux would disable the line.
 - **PDF.** Silent.
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-irq`): with RDA pending at trigger
+  4, an RX FIFO reset leaves `int_o` at 1 and IIR at 0xC1; so does raising
+  the trigger level to 8 with four characters in the FIFO.
 
 ### U22: MSR deltas in loopback; TERI on both edges
 
@@ -333,7 +380,10 @@ difference. Bold defects are the ones most likely to show up in normal use.
   high".
 - **NS16550A.** In loopback the deltas follow the looped-back MCR bits;
   TERI is set on the trailing edge of RI only.
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-modem`): RI rising and falling each
+  set TERI. In loopback, MCR = 0x1F gives MSR = 0xF0 (no deltas); pad
+  changes then set all four deltas (MSR = 0xFF) while MSR[7:4] stay with
+  MCR.
 
 ### U23: modem pins are active high
 
@@ -343,7 +393,9 @@ difference. Bold defects are the ones most likely to show up in normal use.
   consistent with active-high pins.
 - **PDF.** MCR: "'0' – DTR is '1'; '1' – DTR is '0'" (same for RTS).
   MSR[4..7]: "Complement of the CTS input" etc.
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-modem`): MCR = 0x01 drives DTR
+  high, 0x02 RTS high; CTS, DSR and DCD high on the pads read as 1 in
+  MSR[4], [5] and [7].
 
 ### U24: only a DLL write restarts the baud divider
 
@@ -358,7 +410,13 @@ difference. Bold defects are the ones most likely to show up in normal use.
   LSB last." §5.1: the engine starts when DLAB is set back to 0 (not so in
   the RTL).
 - **Impact.** Linux writes DLL then DLM. Harmless unless DLL = 0.
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-baud`): from reset there are no
+  ticks. DLL = 0x10 then DLM = 0x01 gives a first tick within 16 clocks and
+  then a period of 0x110. A DLL write alone restarts the divider: the first
+  tick comes DL + 2 clocks after the write strobe. From DL = 0, DLL = 0 then
+  DLM = 0x01 gives the first tick 65534 clocks after the DLM write, and then
+  a period of 0x100. The divider runs with DLAB = 1 (the test runs with LCR
+  = 0x83).
 
 ### U25: DLAB = 1 turns off read side effects
 
@@ -367,7 +425,10 @@ difference. Bold defects are the ones most likely to show up in normal use.
   IIR in either DLAB state (`uart_regs.v:410-413`). With DLAB = 1 these
   reads return the value and clear nothing.
 - **NS16550A.** DLAB affects offsets 0 and 1 only.
-- **Status.** To confirm by simulation (step 4).
+- **Status.** Confirmed 2026-10-24 (`ref-regs`): with DLAB = 1, two reads
+  each of LSR (0xE5), MSR (0x11) and IIR (0xC2) return the same value. With
+  DLAB = 0 each first read returns it and the second shows it cleared (0x61,
+  0x10, 0xC1).
 
 ### U26: TX FIFO reset race
 
@@ -380,8 +441,12 @@ difference. Bold defects are the ones most likely to show up in normal use.
   that pop, push and pop with count 0 move both pointers
   (`uart_tfifo.v:222-225`) and the written byte is never sent.
 - **PDF.** FCR[2]: the shift register is not cleared. Silent on the race.
-- **Status.** To confirm by simulation (step 4). Low priority: plan Q5
-  treats a FIFO reset during a transfer as undefined.
+- **Status.** Confirmed 2026-10-24 (`ref-tx`, divisor 32). A TX FIFO reset
+  after the transmitter entered `s_pop_byte` sends the stale byte at entry 0
+  (0x3E from the previous character), not the byte written (0xA7). A THR
+  write swept over 32 clock offsets after that reset: at the offset where
+  its push met the pop, the byte was never sent and the count stayed 0. Low
+  priority: plan Q5 treats a FIFO reset during a transfer as undefined.
 
 ## Differences from the PDF
 

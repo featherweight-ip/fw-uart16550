@@ -126,7 +126,7 @@ stateDiagram-v2
   input is 0 **and** FE was set, the FSM waits in `push` and pushes
   nothing until the input goes to 1 (then it pushes the FE character) or
   the break detector fires (then it pushes a break character instead; the
-  FE character is lost) (`uart_receiver.v:396-416`, U12) **(to confirm)**.
+  FE character is lost) (`uart_receiver.v:396-416`, U12; confirmed).
 - LCR is read live, as in the transmitter.
 
 **RX FIFO reset** (FCR[1]) clears the FIFO, its error flags and overrun,
@@ -146,7 +146,7 @@ flags (`uart_rfifo.v:315-318`); it drives LSR[7].
 The head entry is always visible: RBR reads the head byte and LSR.PE/FE/BI
 come from the head entry's flags.
 
-Defects at the edges, all **(to confirm)**:
+Defects at the edges, all confirmed on the `ref` view ({doc}`deviations`):
 
 - The RAM write enable is the push strobe, with no check of the count. A
   push into a full FIFO (when `top == bottom`) writes over the head byte.
@@ -185,7 +185,7 @@ set (`uart_regs.v:841-853`). For the highest pending source it drops in the
 clock of the clearing access instead of one clock after; the THRE term does
 not do this, because its expression `!(fifo_write & iir_read)` is never 0.
 
-Clearing defects, all **(to confirm)**:
+Clearing defects, all confirmed on the `ref` view ({doc}`deviations`):
 
 - **RDA lost** (U20). The RDA flag is cleared by the RBR read at
   count = trigger level, but the pop is one clock later. If a character

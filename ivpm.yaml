@@ -1,0 +1,96 @@
+$schema: https://fvutils.github.io/ivpm/ivpm.schema.json
+
+package:
+  name: fw-uart16550
+  version: "0.1.0"
+  description: >-
+    16550 UART written with fw-hdl, verified against the freecores
+    (OpenCores) uart16550 core and compared with it for area.
+  license: Apache-2.0
+  default-dep-set: dev
+
+  dep-sets:
+  # What a consumer of the IP needs: the fw-hdl library and the UART and
+  # Wishbone protocol kits the model is built on.
+  - name: use
+    description: fw-hdl and the protocol kits; what a consuming project fetches.
+    deps:
+    - name: fw-hdl
+      url: https://github.com/featherweight-hdl/fw-hdl.git
+      dep-set: default-dev
+    - name: fw-proto-uart
+      url: https://github.com/featherweight-ip/fw-proto-uart.git
+      dep-set: use
+    - name: fw-proto-wb
+      url: https://github.com/featherweight-ip/fw-proto-wb.git
+      dep-set: use
+
+  # Building, verifying, lowering, synthesizing and documenting the IP.
+  # Step 4 (docs/design/ref-bench.md): the reference, the VIP and the flow.
+  # The op-model (pssc, peakrdl-pss) comes in step 5, the register tools in
+  # step 6.
+  - name: dev
+    description: The use set plus the reference core, VIP, tools and Sphinx.
+    uses: [use]
+    deps:
+    - name: fw-hdl
+      url: https://github.com/featherweight-hdl/fw-hdl.git
+      dep-set: default-dev
+
+    # Reference implementation: the OpenCores uart16550 core, U2B0
+    # (freecores 2b0ad80) with the fw patch set (no behaviour or area
+    # change; plan §2.1). docs/reference/ describes it.
+    - name: oc-uart16550
+      url: https://github.com/featherweight-ip/oc-uart16550.git
+      tag: u2b0-fw1
+      deps: skip
+
+    # Verification: the UART VIP (it brings fwvip-core) on the serial pins.
+    - name: fwvip-uart
+      url: https://github.com/featherweight-vip/fwvip-uart.git
+      dep-set: use
+
+    # Flow
+    - name: dv-flow-mgr
+      url: https://github.com/dv-flow/dv-flow-mgr.git
+      dep-set: default-dev
+    - name: dv-flow-libproject
+      url: https://github.com/dv-flow/dv-flow-libproject.git
+      dep-set: default-dev
+    - name: dv-flow-libhdlsim
+      url: https://github.com/dv-flow/dv-flow-libhdlsim.git
+      dep-set: default-dev
+    - name: dv-flow-libhdltest
+      url: https://github.com/dv-flow/dv-flow-libhdltest.git
+      dep-set: default-dev
+    - name: dv-flow-libformal
+      url: https://github.com/dv-flow/dv-flow-libformal.git
+      dep-set: default-dev
+    - name: dv-flow-libhdllint
+      url: https://github.com/dv-flow/dv-flow-libhdllint.git
+      dep-set: default-dev
+
+    # Tools
+    - name: verilator
+      src: gh-rls
+      url: https://github.com/edapack/verilator-bin
+      cache: true
+    - name: yosys
+      src: gh-rls
+      url: https://github.com/edapack/yosys-bin
+      cache: true
+      dep-set: default
+    # Target: iCE40UP5K (iCEBreaker) place and route.
+    - name: nextpnr
+      src: gh-rls
+      url: https://github.com/edapack/nextpnr-bin
+      cache: true
+
+    # Documentation (docs/): Sphinx + MyST.
+    - { name: sphinx, src: pypi }
+    - { name: myst-parser, src: pypi }
+    - { name: furo, src: pypi }
+    - { name: sphinx-copybutton, src: pypi }
+    # NOTE: fw-hdl's dfm plugin (packages/fw-hdl/python) is not at the repo
+    # root, so ivpm does not install it. Install it once by hand:
+    #   uv pip install --python packages/python/bin/python -e packages/fw-hdl/python
