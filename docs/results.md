@@ -1,5 +1,41 @@
 # Results
 
+## Code size (2026-10-24)
+
+`scripts/loc.py` counts a line with any code on it as code and a line with
+only a comment as comment. U2B0's comment count includes the LGPL header
+on every file (about 60 lines each).
+
+| | Files | Code | Comment | Total |
+|---|---|---|---|---|
+| U2B0 core: the files synthesized (`rtl/verilog`, no debug interface) | 11 | 1611 | 1574 | 3464 |
+| U2B0's 32-bit shim (`src/ref`, for the comparison only) | 1 | 50 | 29 | 86 |
+| **fw-uart16550**: register map (RDL) | 1 | 26 | 11 | 43 |
+| **fw-uart16550**: class model (`src/spl`) | 6 | 274 | 116 | 423 |
+| **fw-uart16550**: pin top (`src/spl-rtl`) | 4 | 258 | 47 | 334 |
+| **fw-uart16550 total** | 11 | **558** | 174 | 800 |
+| Library: fw-proto-uart, the parts used (baud, tx and rx cores; APIs) | 7 | 348 | 151 | 551 |
+| Library: fw-proto-wb, the parts used (target core, interface, bridge) | 5 | 181 | 83 | 301 |
+| Library: `fw_fifo` | 1 | 34 | 34 | 77 |
+| Library: fw-hdl kernel and std, whole | 44 | 1401 | 1073 | 2781 |
+| Generated: register packages (peakrdl-fw-hdl) | 2 | 214 | 31 | 281 |
+| Generated: lowered netlist | 1 | 3604 | 30 | 3634 |
+
+The design's own code is a third of U2B0's (558 lines against 1611). With
+the library parts it uses, the UART and WISHBONE kits and `fw_fifo`, it is
+1121, 30% less, and those parts are meant to be shared with other designs.
+The fw-hdl kernel plays the part of a language runtime and is not counted against either. The behaviour itself
+(registers and their side effects, both FIFOs, LSR, IIR, MSR, the timeout)
+is `fw_uart16550.svh`, 222 lines; in U2B0 the same is `uart_regs.v`,
+`uart_rfifo.v`, `uart_tfifo.v`, `raminfr.v` and `uart_wb.v`, 896 lines.
+The pin top is mostly wiring: the kit cores, the transactor interface and
+the bridges between it and the model.
+
+Not like for like: U2B0's code carries the 8/32-bit bus option and the
+debug interface (`UART_HAS_DEBUG`), not all of which is compiled here. fw
+lacks the baud restart on a DL write (U24) and gets the serial framing
+from the kit cores.
+
 ## First area: fw-uart16550 against U2B0 (2026-10-24)
 
 The first lowerable fw-uart16550 ({doc}`design/fw-impl`), lowered with the
