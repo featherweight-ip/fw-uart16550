@@ -11,16 +11,21 @@ fw-i2c path (`dfm run lowered`) and synthesized with
 the 32-bit shim, FIFOs in flops on both sides (D4 (a)). LUT4 is the median
 [range] of 11 reordered runs.
 
-| | SB_LUT4 | Flops | SB_CARRY | Generic gates |
-|---|---|---|---|---|
-| U2B0 (`ref-rtl`) | 826 [826, 826] | 564 | 80 | 1719 |
-| fw-uart16550 (`lowered`) | **774** [766, 790] | **526** | 92 | 2154 |
-| Difference | −52 (−6%) | −38 (−7%) | +12 | +435 |
-| Budget (plan §6.2) | ≤ 903 | ≤ 620 | | |
+| | SB_LUT4 | Flops | SB_CARRY | Generic gates | Fmax (MHz) |
+|---|---|---|---|---|---|
+| U2B0 (`ref-rtl`) | 826 [826, 826] | 564 | 80 | 1719 | 40.8, 39.7, 43.5 |
+| fw-uart16550, first pass | 774 [766, 790] | 526 | 92 | 2154 | 29.8, 33.0, 32.3 |
+| **fw-uart16550, now** | **736** [729, 750] | **529** | **80** | 2132 | 35.9, 35.3, 35.1 |
+| Now − U2B0 | −90 (−11%) | −35 (−6%) | 0 | +413 (+24%) | −13% |
+| Budget (plan §6.2) | ≤ 903 | ≤ 620 | | | ≥ 37 |
 
-Within budget, and below the reference in LUT4 and flops. The generic gate
-count (2-input gates and MUX, technology-neutral) is 25% higher. That
-cross-check disagrees with the iCE40 numbers and is not explained yet.
+The first pass is the commit d560ce7 state; "now" includes the second
+round below. Fmax is from `scripts/pnr-compare.sh` (see Timing).
+
+Within budget, and below the reference in LUT4 and flops. Fmax is still
+short of the target. The generic gate count is 24% higher: that is the
+form of the FIFO read mux, not extra logic (see "The generic gate count"
+below).
 
 Checked before measuring: the shared tests (`smoke`, `regs`, `line`,
 `status`, `irq`) pass on the lowered netlist (`rtl` view), on the class model
@@ -80,10 +85,87 @@ From the first lowered netlist to this one:
   root_dut_msr_started is read but no longer defined". The model no longer
   uses one.
 
+### Second round (2026-10-24)
+
+Each change measured on its own, against the one before (LUT4 median of 5,
+Fmax over 3 seeds):
+
+| Change | LUT4 | FF | CARRY | Fmax (MHz) | Kept |
+|---|---|---|---|---|---|
+| Start | 774 | 526 | 92 | 29.8–33.0 | |
+| O1: the timeout reload value in a register, set on LCR and DL writes | 776 | 530 | 91 | 29.5–30.6 | no (see below) |
+| O2: LSR and IIR registered by the status process; the host's reads (and their side effects) use the registers, as U2B0 does | 761 | 541 | 94 | 31.0–32.9 | yes |
+| O3: kit baud core reloads with the divisor and ticks at 1, no subtractor (fw-proto-uart 95b4ff9; proven equivalent to the old core) | 768 | 541 | 80 | 32.6–34.0 | yes |
+| O4: the timeout's reload trigger from bit 0 of each RX pointer instead of a copy of both | 761 | 533 | 81 | 32.7–33.9 | yes |
+| O1 taken out again | 745 | 529 | 81 | 31.0–33.1 | |
+| All, 11 seeds | 736 | 529 | 80 | 35.1–35.9 | |
+
+O1 was first inlined at two call sites (+21 LUT4); with one call site it was
+area-neutral, and with O2–O4 in, taking it out saved 16 LUT4 and 4 FF for
+about 1 MHz, within the seed spread. Its one-call-site refactor of
+`host_access()` is kept.
+
+The critical path after the first pass was the timeout reload (FIFO count
+→ `toc_value()` → the counter). O1 moved it to the host's IIR read
+(RX head error → `head_ack` → `thre_masked`), which O2 removed. Since
+then the worst path differs by seed: the kit tx core's counter, the
+status process, or the host's TX FIFO write straight from `wb_cyc_i`.
+Routing is about two thirds of the delay. U2B0 registers the bus in
+`uart_wb` (27 FF) before decoding; the fw WISHBONE target core does not,
+so a request is decoded and acted on in the clock it arrives.
+
+### The generic gate count
+
+The generic flow counts 2-input gates and MUX. By type, against U2B0 (one
+run each):
+
+| | AND | MUX | NAND | NOR | OR | NOT | XOR+XNOR | Total |
+|---|---|---|---|---|---|---|---|---|
+| U2B0 | 514 | 286 | 286 | 153 | 285 | 135 | 60 | 1719 |
+| fw-uart16550 | 858 | 84 | 313 | 333 | 209 | 134 | 113 | 2044 |
+
+fw has 202 fewer MUX and 344 more AND. The difference is `fw_fifo`'s read: an AND-OR over
+decoded indices costs about three gates per entry and bit, where U2B0's
+memory read is a tree of MUX, one gate each. On iCE40 both are LUT4s at
+about the same count. With `fw_fifo`'s read rewritten as a mux tree on the
+index bits:
+
+| `fw_fifo` read | LUT4 (median of 5) | Fmax (MHz) | Generic gates (median) |
+|---|---|---|---|
+| AND-OR (kept) | 736 | 35.1–35.9 | 2132 (+24%) |
+| Mux tree | 749 | 33.9–34.5 | 1780 (+3.6%) |
+
+So the 24% is the read mux's form: with a mux tree fw is within 4% of U2B0
+on the generic count (its as-written run, 1670, is below it). The AND-OR
+form is kept because the target is iCE40, where it is 13 LUT4 smaller and
+about 1.5 MHz faster. A library with MUX2 cells (an ASIC) would favour the
+mux tree; `fw_fifo` could offer both.
+
+The lowering's output order varies between runs of the same source (the
+as-written iCE40 run was 740, then 737 LUT4), so single runs differ by a
+few LUT4 even before the reordered seeds.
+
+### Timing
+
+`scripts/pnr-compare.sh`: both designs in one pin wrapper (the shim's pins
+with an 8-bit data bus; bits 31:8 are 0 on both), nextpnr-ice40 on the
+UP5K-SG48 at 12 MHz, 3 seeds.
+
+| | Fmax (MHz), seeds 1–3 | Logic cells |
+|---|---|---|
+| U2B0 | 40.8, 39.7, 43.5 | 1240 / 5280 |
+| fw-uart16550, first pass | 29.8, 33.0, 32.3 | 1220 / 5280 |
+| fw-uart16550, now | 35.9, 35.3, 35.1 | 1181 / 5280 |
+
+Both pass the 12 MHz board clock; fw-uart16550 is still short of the
+plan's target (≥ 0.9 × 41 MHz). For the first pass the critical path was
+the timeout reload; for the second round, see above.
+
+`obsmerge=1` (register merging modulo observability) gains nothing:
+784 LUT4 on one run, against 776 without it.
+
 ### Not measured yet
 
-- P&R and Fmax (the shim's pins do not fit the SG48 package; U2B0's 41 MHz
-  is for the 8-bit core alone).
 - The FIFOs in block RAM (D4 (b)).
 - The attribution by function of design §7.2 (bus and registers, TX, RX,
   storage): it needs the netlist's hierarchy or a per-signal mapping.

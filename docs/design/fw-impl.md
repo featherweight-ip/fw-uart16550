@@ -56,6 +56,15 @@ fw-proto-uart's TLM link (K7) and comes later too.
 | 8b | Universal directed tests on `ref` and `wb` | done 2026-10-24: `regs`, `line` (framings at div 1–3, loopback), `status` (PE, FE, BI, overrun), `irq` (THRE, RDA, TI, RLS, MS) pass on both; the `ref` confirmation tests still pass |
 | 9a | `lowered` and `rtl` view; `rtl-smoke` and the directed tests pass | done 2026-10-24: the five shared tests pass on `rtl`. Needed a lowering fix (partial nonblocking writes, fw-hdl `translate.py`) and `python-sat` in the venv |
 | 9b | Synthesis of the lowered netlist (fw-i2c `synth-lowered.sh`), against the baseline; `docs/results.md` | done 2026-10-24: 774 LUT4 / 526 FF / 92 CARRY against U2B0's 826 / 564 / 80 (Yosys 0.70). {doc}`../results` |
+| 10a | O1: the timeout reload value in a register, set on LCR writes (critical path) | tried 2026-10-24, not kept: −16 LUT4 / −4 FF without it for ~1 MHz. Its one-call-site refactor of `host_access()` is kept |
+| 10b | O2: LSR and IIR registered by the status process; the host reads the registers | done 2026-10-24 |
+| 10c | O3: kit baud core without the reload subtractor (fw-proto-uart) | done 2026-10-24: fw-proto-uart 95b4ff9 (pushed), proven equivalent; −14 CARRY |
+| 10d | O4: timeout reload trigger from pointer bit 0 instead of a copy of both pointers | done 2026-10-24 |
+| 10e | Why fw's generic gate count is 25% above U2B0's when its iCE40 LUT4 count is lower | done 2026-10-24: the FIFO read mux's form (AND-OR vs MUX tree); with a mux tree +3.6%. AND-OR kept for iCE40 ({doc}`../results`) |
+
+Each of O1–O4 is measured on its own against the one before: LUT4 (median
+of 5), FF, CARRY, Fmax (3 seeds). Start: 774 / 526 / 92, 29.8–33.0 MHz.
+Result: 736 / 529 / 80, 35.1–35.9 MHz (U2B0: 826 / 564 / 80, 39.7–43.5).
 
 ## Status notes
 

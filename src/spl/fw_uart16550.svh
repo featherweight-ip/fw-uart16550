@@ -23,7 +23,8 @@
 //   tx_proc  TX FIFO rd_ptr
 //   rx_recv  RX FIFO entries and wr_ptr; rx_bad_wr; oe_set (the receive
 //            bridge's thread)
-//   status   msr_prev, msr_set, the timeout counter, the interrupt pin
+//   status   msr_prev, msr_set, the timeout counter, lsr_q, iid_q, the
+//            interrupt pin
 //
 // Status is a relation over that state: LSR, IIR, MSR and int_o. Unlike U2B0:
 //   U5/U14   a character that arrives with the RX FIFO full is dropped, and
@@ -67,7 +68,9 @@ class fw_uart16550 extends fw_component;
     bit [3:0]  msr_prev;        // the modem pads last clock, {dcd, ri, dsr, cts}
     bit [3:0]  msr_set;
     bit [9:0]  to_cnt = 10'd639;    // character timeout, in ticks (8N1 at reset)
-    bit [4:0]  to_wr, to_rd;    // the RX FIFO pointers last clock
+    bit        to_wr, to_rd;    // bit 0 of the RX FIFO pointers last clock
+    bit [7:0]  lsr_q = 8'h60;   // LSR and IIR[3:0] as of last clock: the host
+    bit [3:0]  iid_q = 4'h1;    // reads these, as U2B0 registers lsr and iir
 
     function new(string name, fw_component parent);
         fw_uart16550_proc p_tx, p_status;
@@ -98,18 +101,17 @@ class fw_uart16550 extends fw_component;
         int unsigned off  = int'({idx, 2'b00});
         bit          dlab = regs.LCR.read().DLAB;
         bit [7:0]    v    = dat_w[7:0];
+        bit          line_changed = 1'b0;   // one apply_line() call site
         err   = 1'b0;
         dat_r = '0;
         if (dlab && idx < 3'd2) begin
             if (we) begin
                 dlab_regs.write_val(off, {24'h0, v});
-                apply_line();
+                line_changed = 1'b1;
             end else begin
                 dat_r = dlab_regs.read_val(off);
             end
-            return;
-        end
-        if (we) begin
+        end else if (we) begin
             case (idx)
                 3'd0: thr_write(v);
                 3'd2: fcr_write(off, v);
@@ -117,7 +119,7 @@ class fw_uart16550 extends fw_component;
                     regs.write_val(off, {24'h0, v});
                     case (idx)
                         3'd1: thre_masked = 1'b0;    // IER: THRE raises again
-                        3'd3: apply_line();
+                        3'd3: line_changed = 1'b1;
                         3'd4: pins.t.set_mcr(5'(regs.MCR.read()));
                         default: ;
                     endcase
@@ -132,9 +134,11 @@ class fw_uart16550 extends fw_component;
                 default: dat_r = regs.read_val(off);
             endcase
         end
+        if (line_changed) apply_line();
     endtask
 
-    // DL and LCR to the cores, and the break level.
+    // DL and LCR to the cores, and the break level. (Keeping toc_value() in
+    // a register set here cost 16 LUT4 and 4 FF for about 1 MHz: not done.)
     task apply_line();
         fw_uart16550_regs__LCR_t lcr = regs.LCR.read();
         line.t.configure({dlab_regs.DLM.read().DLM, dlab_regs.DLL.read().DLL},
@@ -172,13 +176,13 @@ class fw_uart16550 extends fw_component;
     endfunction
 
     protected function bit [7:0] iir_read(bit side_effects);
-        bit [3:0] id = iid();
+        bit [3:0] id = iid_q;
         if (side_effects && id == 4'h2) thre_masked = 1'b1;
         return {4'hC, id};
     endfunction
 
     protected function bit [7:0] lsr_read(bit side_effects);
-        bit [7:0] lsr = lsr_value();
+        bit [7:0] lsr = lsr_q;
         if (side_effects) begin
             oe_ack = oe_set;
             if (!rxf.empty()) head_ack = 1'b1;
@@ -297,15 +301,20 @@ class fw_uart16550 extends fw_component;
             msr_prev = pads;
 
             // Timeout: reloaded on a push or a pop and while the FIFO is
-            // empty; counts down on ticks to 0.
-            if (rxf.wr_ptr != to_wr || rxf.rd_ptr != to_rd || rxf.empty())
+            // empty; counts down on ticks to 0. A push or a pop moves its
+            // pointer by one, so bit 0 shows it; a flush empties the FIFO.
+            if (rxf.wr_ptr[0] != to_wr || rxf.rd_ptr[0] != to_rd || rxf.empty())
                 to_cnt = toc_value();
             else if (pins.t.baud_tick() && to_cnt != '0)
                 to_cnt = to_cnt - 1'b1;
-            to_wr = rxf.wr_ptr;
-            to_rd = rxf.rd_ptr;
+            to_wr = rxf.wr_ptr[0];
+            to_rd = rxf.rd_ptr[0];
 
-            pins.t.set_irq(iid() != 4'h1);
+            // LSR and IIR for the host's reads, a clock behind the state
+            // (one copy of the status logic, here, instead of one per read).
+            lsr_q = lsr_value();
+            iid_q = iid();
+            pins.t.set_irq(iid_q != 4'h1);
             tick();
         end
     endtask
