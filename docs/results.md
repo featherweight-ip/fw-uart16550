@@ -15,15 +15,17 @@ the 32-bit shim, FIFOs in flops on both sides (D4 (a)). LUT4 is the median
 |---|---|---|---|---|---|
 | U2B0 (`ref-rtl`) | 826 [826, 826] | 564 | 80 | 1719 | 40.8, 39.7, 43.5 |
 | fw-uart16550, first pass | 774 [766, 790] | 526 | 92 | 2154 | 29.8, 33.0, 32.3 |
-| **fw-uart16550, now** | **736** [729, 750] | **529** | **80** | 2132 | 35.9, 35.3, 35.1 |
-| Now − U2B0 | −90 (−11%) | −35 (−6%) | 0 | +413 (+24%) | −13% |
+| fw-uart16550, second round | 736 [729, 750] | 529 | 80 | 2132 | 35.9, 35.3, 35.1 |
+| **fw-uart16550, now** | **760** [756, 772] | **553** | **67** | 2145 | 41.5, 40.5, 41.7, 39.5, 40.5, 40.5 |
+| Now − U2B0 | −66 (−8%) | −11 (−2%) | −13 | +426 (+25%) | about −2% (medians 40.5, 41.0) |
 | Budget (plan §6.2) | ≤ 903 | ≤ 620 | | | ≥ 37 |
 
-The first pass is the commit d560ce7 state; "now" includes the second
-round below. Fmax is from `scripts/pnr-compare.sh` (see Timing).
+The first pass is the commit d560ce7 state; "now" includes the second and
+third rounds below. Fmax is from `scripts/pnr-compare.sh` (see Timing); the
+third round uses 6 seeds (U2B0 on 6: 40.8, 39.7, 43.5, 42.1, 39.5, 41.4).
 
-Within budget, and below the reference in LUT4 and flops. Fmax is still
-short of the target. The generic gate count is 24% higher: that is the
+Within budget, below the reference in LUT4 and flops, and at the Fmax
+target on every seed. The generic gate count is 24% higher: that is the
 form of the FIFO read mux, not extra logic (see "The generic gate count"
 below).
 
@@ -114,6 +116,71 @@ Routing is about two thirds of the delay. U2B0 registers the bus in
 `uart_wb` (27 FF) before decoding; the fw WISHBONE target core does not,
 so a request is decoded and acted on in the clock it arrives.
 
+### Third round: timing (2026-10-24)
+
+**Method.** `scripts/lut_depth.py` counts LUT4 levels to each flop input
+in the mapped netlist; `scripts/fmax-fw.sh` places one netlist on 6 seeds.
+Seed-to-seed spread is 2–3 MHz, so a change is judged on its 6 seeds and
+its depth histogram, not one run. At the start (re-measured, 755 LUT4,
+32.4–33.9 MHz) fw had 373 endpoints at 7 or more LUT levels and 3 at 9;
+U2B0 has 4 at 7 and none deeper. The kit cores alone are 4–6 levels deep:
+the depth came from where the model and the cores meet.
+
+| Change | LUT4 | FF | Fmax, 6 seeds (MHz) | Depth ≥ 7 |
+|---|---|---|---|---|
+| Start | 755 | 529 | 32.4–33.9 | 373 |
+| T1 `fw_fifo.full()` by pointer compare, not `count() == DEPTH` (every push checked it through a subtractor) | 743 | 529 | 34.8–37.2 | 67 |
+| T2 kit baud core: `tick` registered (its consumers started from the counter's and the divisor's zero tests) | 733 | 530 | 34.2–37.1 | 26 |
+| T3 LSR[7] by a toggle pair per RX entry, not counts of bad pushes and pops (a pop read the head's error bits through the 16:1 read mux) | 773 | 552 | 37.2–39.1 | 19 |
+| T4 IIR from last clock's state, computed first in the status loop (see below) | 768 | 553 | 36.7–41.7 | 0 |
+| T5 `fw_fifo.empty()` as an XOR reduction, and RX trigger level 1 as `!empty()` (see below) | 765 | 553 | 38.6–41.7 | 0 |
+
+LUT4 here is the 8-bit pin wrapper's single run; the table at the top has
+the 11-run median.
+
+**IIR a clock behind.** The head's error bits (a read mux), the RX count
+(a subtractor) and the timeout (its reload) were each followed by IIR's
+priority in the same clock. IIR is now computed from registers: RLS from
+`lsr_q`, RDA from a registered trigger level, TI from `to_cnt` and
+`lsr_q`'s DR, MS from the deltas. Each term's inputs lag together, so
+none glitches. THRE keeps `txf.empty()`: it pairs with `thre_masked`,
+which a THR write clears in the clock it pushes, and a lagged THRE would
+pulse `int_o`. The lag is invisible to the host: the kit's WISHBONE target
+accepts a request at most every third clock (WATCH, RESP, DRAIN), so the
+next access after a change reads IIR registered two clocks after it. U2B0
+also builds IIR from its registered LSR. A second clock of lag would not
+be invisible.
+
+**What abc9 did with `empty()`.** After T4 every seed's critical path was
+the host's pop: the RX pointers, a 5-bit carry chain, a carry compare, the
+pop enables. `synth_ice40` maps with `abc9`, which sees through the carry
+cells and merges nodes with the same function. `count() >= 1` (the FCR = 0
+trigger) is the same function as `!empty()`, so abc9 built every RX
+`empty()` from the subtractor and its compare. This is legal and abc9 does
+it on purpose: its delay model has a carry hop at about 0.1–0.3 ns and a
+flat 250 ps per wire (`-W 250`), while on the placed UP5K the routing into
+and out of a carry chain costs 1.7–3.5 ns. So it is a model mismatch, not
+a bug. Writing level 1 as `!empty()` removes the equivalent node; the XOR
+form of `empty()` also keeps Yosys's `alumacc` from merging it with the
+subtraction.
+
+**The placer.** nextpnr places timing-driven by default, and that is worth
+2–3 MHz here (fw seeds 1–3: 41.5, 40.5, 41.7; with `--no-tmdriv` 38.0,
+39.3, 37.3). The target frequency makes no difference: placed for 40 MHz
+instead of 12, both designs give the same Fmax on every seed. The placer
+weights paths by slack relative to the worst path, so a loose constraint
+does not make it lazy.
+
+**Verified.** The shared tests on `wb`, `rtl` and `ref`, and U2B0's
+ref-only tests, pass (23 cases). A mutation where a pop does not clear its
+entry's LSR[7] flag fails `status`. The kit's smoke, lint-rtl, fv-quick and
+full fv pass with the registered tick.
+
+**Cost.** +24 LUT4 and +24 FF on the 11-run medians against the second
+round, nearly all T3: 32 flags against two 5-bit counts, with a LUT per
+flag on each side. CARRY is down 13 (T1). fw is still 8% below U2B0 in
+LUT4 and 2% in flops.
+
 ### The generic gate count
 
 The generic flow counts 2-input gates and MUX. By type, against U2B0 (one
@@ -155,11 +222,13 @@ UP5K-SG48 at 12 MHz, 3 seeds.
 |---|---|---|
 | U2B0 | 40.8, 39.7, 43.5 | 1240 / 5280 |
 | fw-uart16550, first pass | 29.8, 33.0, 32.3 | 1220 / 5280 |
-| fw-uart16550, now | 35.9, 35.3, 35.1 | 1181 / 5280 |
+| fw-uart16550, second round | 35.9, 35.3, 35.1 | 1181 / 5280 |
+| fw-uart16550, now | 41.5, 40.5, 41.7, 39.5, 40.5, 40.5 | 1204 / 5280 |
 
-Both pass the 12 MHz board clock; fw-uart16550 is still short of the
-plan's target (≥ 0.9 × 41 MHz). For the first pass the critical path was
-the timeout reload; for the second round, see above.
+U2B0 on seeds 4–6: 42.1, 39.5, 41.4. Both pass the 12 MHz board clock, and
+fw-uart16550 now meets the plan's target (≥ 0.9 × 41 MHz) on every seed.
+For the first pass the critical path was the timeout reload; for the
+later rounds, see above.
 
 `obsmerge=1` (register merging modulo observability) gains nothing:
 784 LUT4 on one run, against 776 without it.

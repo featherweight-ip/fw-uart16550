@@ -18,10 +18,10 @@
 //
 // Every state bit has one writer (design §3.2), except the TX FIFO's read
 // pointer, which a TX FIFO reset writes from the host side (the host wins).
-//   host     TX FIFO entries and wr_ptr; RX FIFO rd_ptr; rx_bad_rd; oe_ack;
+//   host     TX FIFO entries and wr_ptr; RX FIFO rd_ptr; rx_bad_clr; oe_ack;
 //            head_ack; thre_masked; msr_ack
 //   tx_proc  TX FIFO rd_ptr
-//   rx_recv  RX FIFO entries and wr_ptr; rx_bad_wr; oe_set (the receive
+//   rx_recv  RX FIFO entries and wr_ptr; rx_bad_set; oe_set (the receive
 //            bridge's thread)
 //   status   msr_prev, msr_set, the timeout counter, lsr_q, iid_q, the
 //            interrupt pin
@@ -55,14 +55,18 @@ class fw_uart16550 extends fw_component;
     fw_fifo #(bit [7:0], 16)      txf;
     fw_fifo #(rx_ent_t, 16)       rxf;
 
+    // LSR[7], an error anywhere in the RX FIFO: a toggle pair per entry.
+    // A push sets its entry's pair to differ if the character has an error;
+    // a pop (or a flush) makes it equal again. Unlike counts of bad pushes
+    // and pops, a pop needs no read of the head entry's error bits.
     // Host side.
-    bit [4:0]  rx_bad_rd;       // bad entries popped (or flushed)
+    bit [15:0] rx_bad_clr;
     bit        oe_ack;
     bit        head_ack;        // an LSR read has reported the head's errors
     bit        thre_masked;     // an IIR read has reported THRE
     bit [3:0]  msr_ack;
     // Receive side.
-    bit [4:0]  rx_bad_wr;       // bad entries pushed
+    bit [15:0] rx_bad_set;
     bit        oe_set;
     // Status process.
     bit [3:0]  msr_prev;        // the modem pads last clock, {dcd, ri, dsr, cts}
@@ -71,6 +75,7 @@ class fw_uart16550 extends fw_component;
     bit        to_wr, to_rd;    // bit 0 of the RX FIFO pointers last clock
     bit [7:0]  lsr_q = 8'h60;   // LSR and IIR[3:0] as of last clock: the host
     bit [3:0]  iid_q = 4'h1;    // reads these, as U2B0 registers lsr and iir
+    bit        rx_trig_q;       // rx_trig() as of last clock, for iid()
 
     function new(string name, fw_component parent);
         fw_uart16550_proc p_tx, p_status;
@@ -155,7 +160,7 @@ class fw_uart16550 extends fw_component;
         regs.write_val(off, {24'h0, v});     // RX_TRIG; the reset bits are pulses
         if (v[1]) begin
             rxf.flush();
-            rx_bad_rd = rx_bad_wr;
+            rx_bad_clr = rx_bad_set;
             oe_ack    = oe_set;
             head_ack  = 1'b0;
         end
@@ -168,7 +173,8 @@ class fw_uart16550 extends fw_component;
     protected function bit [7:0] rbr_read();
         rx_ent_t e = rxf.head();
         if (!rxf.empty()) begin
-            if (e[10:8] != 3'b000) rx_bad_rd = rx_bad_rd + 1'b1;
+            for (int i = 0; i < 16; i++)
+                if (rxf.rd_ptr[3:0] == 4'(i)) rx_bad_clr[i] = rx_bad_set[i];
             rxf.pop();
             head_ack = 1'b0;
         end
@@ -210,7 +216,7 @@ class fw_uart16550 extends fw_component;
     function bit [7:0] lsr_value();
         bit [2:0] he   = head_err();
         bit       thre = txf.empty();
-        return {rx_bad_wr != rx_bad_rd, thre && !pins.t.tx_busy(), thre,
+        return {(rx_bad_set ^ rx_bad_clr) != '0, thre && !pins.t.tx_busy(), thre,
                 he, oe(), !rxf.empty()};
     endfunction
 
@@ -220,23 +226,37 @@ class fw_uart16550 extends fw_component;
         return {hi, msr_set ^ msr_ack};
     endfunction
 
-    // RX FIFO at or above the trigger level: 1, 4, 8, 14 (FCR[7:6]).
+    // RX FIFO at or above the trigger level: 1, 4, 8, 14 (FCR[7:6]). Level
+    // 1 is !empty(), not count() >= 1: the two are the same function, and
+    // Yosys's abc9 then builds every empty() from the count's subtractor
+    // and compare, a carry chain into the host's pop.
     function bit rx_trig();
         bit [4:0] n = rxf.count();
         case (regs.FCR.read().RX_TRIG)
-            2'd0: return n >= 5'd1;
+            2'd0: return !rxf.empty();
             2'd1: return n >= 5'd4;
             2'd2: return n >= 5'd8;
             default: return n >= 5'd14;
         endcase
     endfunction
 
-    // IIR[3:0], by priority RLS > RDA > TI > THRE > MS.
+    // IIR[3:0], by priority RLS > RDA > TI > THRE > MS. The head's error
+    // bits come out of a read mux, the FIFO count out of a subtractor and
+    // the timeout out of its reload, too deep to have the priority after
+    // them in the same clock, so IIR is from last clock's state, as U2B0
+    // builds IIR from its registered LSR: RLS is LSR[4:1] as the host reads
+    // it (lsr_q), RDA the trigger level (rx_trig_q), TI the timeout and
+    // LSR.DR, MS the deltas. Each term's inputs lag together, so none
+    // glitches. THRE keeps the TX FIFO's empty() (a compare): it pairs with
+    // thre_masked, which a THR write clears in the clock it pushes, and a
+    // lagged THRE would raise int_o for that clock. IIR lags by a clock,
+    // which no read sees: the kit's WISHBONE target accepts a request at
+    // most every third clock (WATCH, RESP, DRAIN).
     function bit [3:0] iid();
         fw_uart16550_regs__IER_t ier = regs.IER.read();
-        if (ier.RLS && (oe() || head_err() != 3'b000))      return 4'h6;
-        if (ier.RDA && rx_trig())                           return 4'h4;
-        if (ier.RDA && to_cnt == '0 && !rxf.empty())        return 4'hC;
+        if (ier.RLS && lsr_q[4:1] != 4'b0000)               return 4'h6;
+        if (ier.RDA && rx_trig_q)                           return 4'h4;
+        if (ier.RDA && to_cnt == '0 && lsr_q[0])            return 4'hC;
         if (ier.THRE && txf.empty() && !thre_masked)        return 4'h2;
         if (ier.MS && (msr_set != msr_ack))                 return 4'h0;
         return 4'h1;
@@ -258,8 +278,10 @@ class fw_uart16550 extends fw_component;
             if (oe_set == oe_ack) oe_set = !oe_set;
             if (rxf.full()) return;
         end
+        for (int i = 0; i < 16; i++)
+            if (rxf.wr_ptr[3:0] == 4'(i))
+                rx_bad_set[i] = rx_bad_clr[i] ^ (status[2:0] != 3'b000);
         rxf.push({status[2:0], data});
-        if (status[2:0] != 3'b000) rx_bad_wr = rx_bad_wr + 1'b1;
     endtask
 
     // ---- processes ----
@@ -289,11 +311,20 @@ class fw_uart16550 extends fw_component;
         end
     endtask
 
-    // Each clock: the MSR deltas and copies of the pads, the character
-    // timeout, and the interrupt pin.
+    // Each clock: IIR and LSR for the host's reads, the MSR deltas and
+    // copies of the pads, the character timeout, and the interrupt pin.
     task status_proc();
         forever begin
             bit [3:0] pads = pins.t.modem_in();
+            // IIR first, from last clock's state (lsr_q, rx_trig_q, to_cnt,
+            // msr_set): see iid(). Then LSR and the RX trigger level for
+            // the next clock: one copy of the status logic, here, instead
+            // of one per read.
+            iid_q     = iid();
+            lsr_q     = lsr_value();
+            rx_trig_q = rx_trig();
+            pins.t.set_irq(iid_q != 4'h1);
+
             // MSR: a delta sets on any change of its pad (U22), and holds until
             // an MSR read. msr_prev resets to 0, so a pad that is 1 out of
             // reset sets its delta (U2B0 clears the deltas on the first clock).
@@ -309,12 +340,6 @@ class fw_uart16550 extends fw_component;
                 to_cnt = to_cnt - 1'b1;
             to_wr = rxf.wr_ptr[0];
             to_rd = rxf.rd_ptr[0];
-
-            // LSR and IIR for the host's reads, a clock behind the state
-            // (one copy of the status logic, here, instead of one per read).
-            lsr_q = lsr_value();
-            iid_q = iid();
-            pins.t.set_irq(iid_q != 4'h1);
             tick();
         end
     endtask

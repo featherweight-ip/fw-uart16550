@@ -37,8 +37,8 @@ fw-proto-uart's TLM link (K7) and comes later too.
 |---|---|
 | TX FIFO `wr_ptr`, entries | host (THR write) |
 | TX FIFO `rd_ptr` | tx process; host on TX flush (host wins) |
-| RX FIFO `wr_ptr`, entries, `rx_bad_wr`, `oe_set` | rx sink |
-| RX FIFO `rd_ptr`, `rx_bad_rd`, `oe_ack`, `head_ack` | host |
+| RX FIFO `wr_ptr`, entries, `rx_bad_set` (LSR[7] toggles), `oe_set` | rx sink |
+| RX FIFO `rd_ptr`, `rx_bad_clr` (LSR[7] toggles), `oe_ack`, `head_ack` | host |
 | `thre_masked` (IIR read of THRE until the next THR write or TX flush) | host |
 | MSR delta `set` toggles, previous pads | modem process |
 | MSR delta `ack` toggles | host (MSR read) |
@@ -65,6 +65,22 @@ fw-proto-uart's TLM link (K7) and comes later too.
 Each of O1–O4 is measured on its own against the one before: LUT4 (median
 of 5), FF, CARRY, Fmax (3 seeds). Start: 774 / 526 / 92, 29.8–33.0 MHz.
 Result: 736 / 529 / 80, 35.1–35.9 MHz (U2B0: 826 / 564 / 80, 39.7–43.5).
+
+Third round, timing (target: U2B0's ≥ 37 MHz). Method: LUT depth per
+endpoint (`scripts/lut_depth.py`) and per-variant Fmax over 6 seeds
+(`scripts/fmax-fw.sh`). Start (re-measured, 6 seeds): 755 LUT4, 32.4–33.9
+MHz, 373 endpoints at ≥ 7 LUT levels (U2B0: 4).
+
+| # | Change | Status |
+|---|---|---|
+| T1 | `fw_fifo` `full()` by pointer compare, not `count()` (fw-hdl) | done: 34.8–37.2 MHz, −12 LUT4 |
+| T2 | kit baud core: `tick` registered (fw-proto-uart) | done: −10 LUT4, Fmax within noise; kit smoke, lint-rtl, fv pass |
+| T3 | LSR[7] by a toggle pair per RX entry, not counts of bad pushes and pops | done: 37.2–39.1 MHz, +40 LUT4, +22 FF |
+| T4 | IIR from last clock's state, computed first in the status loop; THRE keeps `txf.empty()` | done: 36.7–41.7 MHz, max depth 6 |
+| T5 | `fw_fifo.empty()` as an XOR reduction; RX trigger level 1 as `!empty()` (abc9 was building `empty()` from the count) | done: 39.5–41.7 MHz |
+| T6 | regression, mutation, area spread, results write-up | done: 760 / 553 / 67, 39.5–41.7 MHz ({doc}`../results`) |
+
+Not pushed or committed: fw-hdl (T1, T5), fw-proto-uart (T2), the model and docs.
 
 ## Status notes
 

@@ -5,6 +5,7 @@
 # they fit the package. nextpnr-ice40 at 12 MHz, $SEEDS (3) seeds each.
 #
 #   scripts/pnr-compare.sh [outdir]     (default rundir/pnr)
+#   FREQ=40 scripts/pnr-compare.sh ...  (the target nextpnr places for; default 12)
 # Needs the ivpm tools on PATH (direnv) and a run of `dfm run lowered`.
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -35,7 +36,7 @@ yosys -q -p "read_verilog $here/rundir/org.fwip.uart16550.lowered/fw_uart16550_t
 for d in ref fw; do
     f=""
     for s in $(seq 1 "${SEEDS:-3}"); do
-        nextpnr-ice40 --up5k --package sg48 --freq 12 --pcf-allow-unconstrained --seed "$s" \
+        nextpnr-ice40 --up5k --package sg48 --freq "${FREQ:-12}" --pcf-allow-unconstrained --timing-allow-fail --seed "$s" \
             --json "$out/$d.json" --asc "$out/$d.asc" > "$out/${d}_pnr$s.log" 2>&1
         f="$f $(grep -h 'Max frequency for clock' "$out/${d}_pnr$s.log" | tail -1 | awk '{print $(NF-5)}')"
     done
