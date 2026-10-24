@@ -2,6 +2,7 @@
 #
 #   dfm run tests      Every simulation case.
 #   dfm run smoke      The smoke case on every view.
+#   dfm run docs       The documentation (sphinx-build -W).
 #   dfm run lint-rtl   Verilator lint of the RTL (reference core + shim, and
 #                      the core in its 32-bit configuration).
 #
@@ -20,21 +21,23 @@ package:
     images:
       type: list
       value: [ref, wb]
-      values: [ref, wb, rtl]
+      values: [ref, wb, rtl, tlm]
       cli: true
       desc: Views the universal tests run on (plan §5)
     view_tb:
       type: map
       value:
-        ref: [uart16550_arm.sv, hdl_top_ref.sv, hvl_top_ref.sv]
-        wb:  [uart16550_arm.sv, hdl_top_wb.sv, hvl_top_wb.sv]
-        rtl: [uart16550_arm.sv, hdl_top_wb.sv, hvl_top_wb.sv]
+        ref: [uart_ref_pads_if.sv, uart16550_arm.sv, hdl_top_ref.sv, hvl_top_ref.sv]
+        wb:  [uart_ref_pads_if.sv, uart16550_arm.sv, hdl_top_wb.sv, hvl_top_wb.sv]
+        rtl: [uart_ref_pads_if.sv, uart16550_arm.sv, hdl_top_wb.sv, hvl_top_wb.sv]
+        tlm: [uart_ref_pads_if.sv, fw_uart16550_tlm_view_pkg.sv, hdl_top_tlm.sv, hvl_top_tlm.sv]
     view_top:
       type: map
       value:
         ref: [hvl_top_ref]
         wb:  [hvl_top_wb]
         rtl: [hvl_top_wb]
+        tlm: [hvl_top_tlm]
 
   imports:
   - project.dv.uvm
@@ -61,6 +64,20 @@ package:
 
   - override: lint-rtl
     needs: [lint, lint-32]
+
+  # The documentation (docs/design/sphinx-docs.md). The source reference
+  # parses the generated register packages, so they are made first. -E: read
+  # every page each time; an incremental build skips unchanged pages and with
+  # them their warnings.
+  - name: docs-build
+    uptodate: false
+    needs: [reg-model]
+    shell: bash
+    run: sphinx-build -W --keep-going -q -E -b html "${{ rootdir }}/docs" "$TASK_RUNDIR/html"
+
+  - root: docs
+    desc: Build the documentation with warnings as errors (HTML in the task's rundir)
+    needs: [docs-build]
 
   # The headline configuration: the 8-bit core behind the 32-bit shim.
   - name: lint

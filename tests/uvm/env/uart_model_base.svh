@@ -28,11 +28,13 @@ virtual class uart_model_base;
     pure virtual function bit [1:0] modem_out();
 
     // ---- interrupt seam ----
+
+    // The interrupt pin changed: called by the HDL top on int_o.
     virtual function void irq_changed(bit level);
         if (level === m_irq_level) return;
         m_irq_level = level;
         -> m_irq_ev;
     endfunction
-    task wait_irq_change(); @m_irq_ev; endtask
-    virtual function bit irq_level(); return m_irq_level; endfunction
+    task wait_irq_change(); @m_irq_ev; endtask           // until int_o changes
+    virtual function bit irq_level(); return m_irq_level; endfunction   // int_o now
 endclass

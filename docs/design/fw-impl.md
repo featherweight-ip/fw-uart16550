@@ -61,6 +61,7 @@ fw-proto-uart's TLM link (K7) and comes later too.
 | 10c | O3: kit baud core without the reload subtractor (fw-proto-uart) | done 2026-10-24: fw-proto-uart 95b4ff9 (pushed), proven equivalent; −14 CARRY |
 | 10d | O4: timeout reload trigger from pointer bit 0 instead of a copy of both pointers | done 2026-10-24 |
 | 10e | Why fw's generic gate count is 25% above U2B0's when its iCE40 LUT4 count is lower | done 2026-10-24: the FIFO read mux's form (AND-OR vs MUX tree); with a mux tree +3.6%. AND-OR kept for iCE40 ({doc}`../results`) |
+| 10f | Simulation speed per view: `stream` test and `scripts/sim-perf.py` | done 2026-10-24: `rtl` 241–244 kclk/s, `ref` 235, `wb` 141–145 (0.59× its netlist); `tlm` view (K7) not built, scoped in {doc}`../results` |
 
 Each of O1–O4 is measured on its own against the one before: LUT4 (median
 of 5), FF, CARRY, Fmax (3 seeds). Start: 774 / 526 / 92, 29.8–33.0 MHz.
@@ -80,7 +81,7 @@ MHz, 373 endpoints at ≥ 7 LUT levels (U2B0: 4).
 | T5 | `fw_fifo.empty()` as an XOR reduction; RX trigger level 1 as `!empty()` (abc9 was building `empty()` from the count) | done: 39.5–41.7 MHz |
 | T6 | regression, mutation, area spread, results write-up | done: 760 / 553 / 67, 39.5–41.7 MHz ({doc}`../results`) |
 
-Not pushed or committed: fw-hdl (T1, T5), fw-proto-uart (T2), the model and docs.
+Pushed 2026-10-24: fw-hdl a49d2da (T1, T5), fw-proto-uart 51e2495 (T2), the model and docs (723c447).
 
 ## Status notes
 

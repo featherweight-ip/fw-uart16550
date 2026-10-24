@@ -90,12 +90,19 @@ Debug 1 matches the PDF (§4.10). Debug 2 does not: the PDF gives MCR at
 
 ## Register reference
 
+The tables below are generated from the RDL. `sphinx-peakrdl` documents one
+address map, so `docs/_rdl/u2b0_docs.rdl` places the two maps side by side,
+with the DLAB = 1 bank at 0x100. That offset exists only in the docs. On the
+bus both banks are at core offset 0, as in the [summary](#summary): read
+each *Absolute Address* in the DLAB = 1 tables as 0x100 plus the core
+offset.
+
 ### LCR.DLAB = 0
 
-```{rdl:doctree} u2b0_uart16550
+```{rdl:doctree} u2b0_docs.u2b0_uart16550
 ```
 
 ### LCR.DLAB = 1
 
-```{rdl:doctree} u2b0_uart16550_dlab
+```{rdl:doctree} u2b0_docs.u2b0_uart16550_dlab
 ```

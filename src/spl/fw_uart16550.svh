@@ -1,80 +1,93 @@
 // The fw-uart16550 UART (docs/design/index.md §3; behaviour per §5).
 //
 // Edges:
-//   host     register port, an export of wb_proto_if #(32, 32)
-//   tx       the kit's transmit API (uart_tx_if), a port
-//   line     the kit's configuration API (uart_config_if), a port: DL and LCR
-//            go to the cores on every write that changes them; the cores
-//            apply them at the next character (K1)
-//   pins     fw_uart16550_pins_if, a port: modem pads, MCR outputs,
-//            interrupt, tx busy, baud tick
-//   rx_sink  the kit's receive API (uart_rx_if), which the view's receive
-//            bridge calls for each character
+//
+// - ``host``: register port, an export of ``wb_proto_if #(32, 32)``
+// - ``tx``: the kit's transmit API (``uart_tx_if``), a port
+// - ``line``: the kit's configuration API (``uart_config_if``), a port. DL
+//   and LCR go to the cores on every write that changes them; the cores
+//   apply them at the next character (K1)
+// - ``pins``: ``fw_uart16550_pins_if``, a port: modem pads, MCR outputs,
+//   interrupt, tx busy, baud tick
+// - ``rx_sink``: the kit's receive API (``uart_rx_if``), which the view's
+//   receive bridge calls for each character
 //
 // Registers follow U2B0 on a 4-byte stride (the shim's map): writes take
-// bits [7:0]; wb_sel_i is ignored, as the shim ignores it. LCR.DLAB banks
+// bits [7:0]; ``wb_sel_i`` is ignored, as the shim ignores it. LCR.DLAB banks
 // offsets 0x00 and 0x04 to DLL and DLM (design R2). Read side effects are
 // here, not in the register block (R3), and only with DLAB = 0 (U25).
 //
 // Every state bit has one writer (design §3.2), except the TX FIFO's read
-// pointer, which a TX FIFO reset writes from the host side (the host wins).
-//   host     TX FIFO entries and wr_ptr; RX FIFO rd_ptr; rx_bad_clr; oe_ack;
-//            head_ack; thre_masked; msr_ack
-//   tx_proc  TX FIFO rd_ptr
-//   rx_recv  RX FIFO entries and wr_ptr; rx_bad_set; oe_set (the receive
-//            bridge's thread)
-//   status   msr_prev, msr_set, the timeout counter, lsr_q, iid_q, the
-//            interrupt pin
+// pointer, which a TX FIFO reset writes from the host side (the host wins):
 //
-// Status is a relation over that state: LSR, IIR, MSR and int_o. Unlike U2B0:
-//   U5/U14   a character that arrives with the RX FIFO full is dropped, and
-//            sets OE (rule overrun_head)
-//   U6       no THRE hold-off (thre_holdoff)
-//   U15      a THR write to a full TX FIFO is ignored (tx_overflow)
-//   U16/U17  same-clock push and pop lose nothing (rx_pushpop)
-//   U18/U19  PE, FE and BI are those of the character at the head of the RX
-//            FIFO, until an LSR read; LSR[7] is set while any character in
-//            the FIFO has an error (lsr_edge, lsr7_clear)
-//   U20/U21  RDA, TI, RLS and MS are levels; only THRE is latched, as a mask
-//            an IIR read sets (rda_lost, rda_stuck)
-//   U24      a DL write takes effect at the next baud tick (the kit baud
-//            core has no restart; dlm_restart, not done)
-//   U26      a TX FIFO reset as the transmitter takes a byte sends that byte
-//            once (tx_reset_race)
+// - host: TX FIFO entries and ``wr_ptr``; RX FIFO ``rd_ptr``; ``rx_bad_clr``,
+//   ``oe_ack``, ``head_ack``, ``thre_masked``, ``msr_ack``
+// - ``tx_proc``: TX FIFO ``rd_ptr``
+// - ``rx_recv`` (the receive bridge's thread): RX FIFO entries and
+//   ``wr_ptr``; ``rx_bad_set``, ``oe_set``
+// - ``status_proc``: ``msr_prev``, ``msr_set``, the timeout counter,
+//   ``lsr_q``, ``iid_q``, ``rx_trig_q``, the interrupt pin
+//
+// Status is a relation over that state: LSR, IIR, MSR and ``int_o``. Unlike
+// U2B0 (rules in parentheses):
+//
+// - U5/U14: a character that arrives with the RX FIFO full is dropped, and
+//   sets OE (``overrun_head``)
+// - U6: no THRE hold-off (``thre_holdoff``)
+// - U15: a THR write to a full TX FIFO is ignored (``tx_overflow``)
+// - U16/U17: same-clock push and pop lose nothing (``rx_pushpop``)
+// - U18/U19: PE, FE and BI are those of the character at the head of the RX
+//   FIFO, until an LSR read; LSR[7] is set while any character in the FIFO
+//   has an error (``lsr_edge``, ``lsr7_clear``)
+// - U20/U21: RDA, TI, RLS and MS are levels; only THRE is latched, as a mask
+//   an IIR read sets (``rda_lost``, ``rda_stuck``)
+// - U24: a DL write takes effect at the next baud tick (the kit baud core
+//   has no restart; ``dlm_restart``, not done)
+// - U26: a TX FIFO reset as the transmitter takes a byte sends that byte
+//   once (``tx_reset_race``)
 class fw_uart16550 extends fw_component;
     typedef bit [10:0] rx_ent_t;            // {BI, FE, PE, data}
 
-    fw_uart16550_regs             regs;
-    fw_uart16550_dlab_regs        dlab_regs;
-    fw_uart16550_host             host;
-    fw_port #(uart_tx_if)         tx;
-    fw_port #(uart_config_if)     line;
-    fw_port #(fw_uart16550_pins_if) pins;
-    fw_uart16550_rx_sink          rx_sink;
+    fw_uart16550_regs             regs;         // DLAB = 0 registers (RDL)
+    fw_uart16550_dlab_regs        dlab_regs;    // DLL and DLM (RDL)
+    fw_uart16550_host             host;         // register port
+    fw_port #(uart_tx_if)         tx;           // to the kit's transmit core
+    fw_port #(uart_config_if)     line;         // line configuration, to the cores
+    fw_port #(fw_uart16550_pins_if) pins;       // pads, MCR, interrupt, tick
+    fw_uart16550_rx_sink          rx_sink;      // from the kit's receive core
 
-    fw_fifo #(bit [7:0], 16)      txf;
-    fw_fifo #(rx_ent_t, 16)       rxf;
+    fw_fifo #(bit [7:0], 16)      txf;          // TX FIFO
+    fw_fifo #(rx_ent_t, 16)       rxf;          // RX FIFO
 
-    // LSR[7], an error anywhere in the RX FIFO: a toggle pair per entry.
-    // A push sets its entry's pair to differ if the character has an error;
-    // a pop (or a flush) makes it equal again. Unlike counts of bad pushes
-    // and pops, a pop needs no read of the head entry's error bits.
     // Host side.
+
+    // LSR[7], an error anywhere in the RX FIFO: a toggle pair per entry,
+    // with ``rx_bad_set``. A push sets its entry's pair to differ if the
+    // character has an error; a pop (or a flush) makes it equal again. Unlike
+    // counts of bad pushes and pops, a pop needs no read of the head entry's
+    // error bits.
     bit [15:0] rx_bad_clr;
-    bit        oe_ack;
+    bit        oe_ack;          // OE reported: an LSR read copies oe_set
     bit        head_ack;        // an LSR read has reported the head's errors
     bit        thre_masked;     // an IIR read has reported THRE
-    bit [3:0]  msr_ack;
+    bit [3:0]  msr_ack;         // MSR deltas reported: an MSR read copies msr_set
+
     // Receive side.
+
+    // The receive side's half of the LSR[7] toggle pairs (see ``rx_bad_clr``).
     bit [15:0] rx_bad_set;
-    bit        oe_set;
+    bit        oe_set;          // toggled by an overrun: OE is oe_set != oe_ack
+
     // Status process.
-    bit [3:0]  msr_prev;        // the modem pads last clock, {dcd, ri, dsr, cts}
-    bit [3:0]  msr_set;
+
+    // The modem pads last clock, {dcd, ri, dsr, cts}.
+    bit [3:0]  msr_prev;
+    bit [3:0]  msr_set;         // toggled per pad change: delta i is set[i] != ack[i]
     bit [9:0]  to_cnt = 10'd639;    // character timeout, in ticks (8N1 at reset)
-    bit        to_wr, to_rd;    // bit 0 of the RX FIFO pointers last clock
-    bit [7:0]  lsr_q = 8'h60;   // LSR and IIR[3:0] as of last clock: the host
-    bit [3:0]  iid_q = 4'h1;    // reads these, as U2B0 registers lsr and iir
+    bit        to_wr;           // RX FIFO wr_ptr[0] last clock (timeout reload)
+    bit        to_rd;           // RX FIFO rd_ptr[0] last clock (timeout reload)
+    bit [7:0]  lsr_q = 8'h60;   // LSR as of last clock: the host reads this
+    bit [3:0]  iid_q = 4'h1;    // IIR[3:0] as of last clock: the host reads this
     bit        rx_trig_q;       // rx_trig() as of last clock, for iid()
 
     function new(string name, fw_component parent);
@@ -100,6 +113,8 @@ class fw_uart16550 extends fw_component;
 
     // ---- register port ----
 
+    // One register access from the host port (``fw_uart16550_host``): the
+    // DLAB decode, the writes and their side effects, the reads.
     task host_access(input bit [31:0] adr, input bit [31:0] dat_w, input bit [3:0] sel,
                      input bit we, output bit [31:0] dat_r, output bit err);
         bit [2:0]    idx  = adr[4:2];
@@ -151,11 +166,13 @@ class fw_uart16550 extends fw_component;
         tx.t.set_break(lcr.BC);
     endtask
 
+    // THR: push, unless the TX FIFO is full (U15); THRE raises again.
     protected task thr_write(bit [7:0] v);
         if (!txf.full()) txf.push(v);
         thre_masked = 1'b0;
     endtask
 
+    // FCR: the trigger level, and the RX (bit 1) and TX (bit 2) FIFO resets.
     protected task fcr_write(int unsigned off, bit [7:0] v);
         regs.write_val(off, {24'h0, v});     // RX_TRIG; the reset bits are pulses
         if (v[1]) begin
@@ -170,6 +187,7 @@ class fw_uart16550 extends fw_component;
         end
     endtask
 
+    // RBR: the head character, popped (with its LSR[7] toggle pair).
     protected function bit [7:0] rbr_read();
         rx_ent_t e = rxf.head();
         if (!rxf.empty()) begin
@@ -181,12 +199,14 @@ class fw_uart16550 extends fw_component;
         return e[7:0];
     endfunction
 
+    // IIR: ``iid_q``; reading THRE masks it until the next THR write.
     protected function bit [7:0] iir_read(bit side_effects);
         bit [3:0] id = iid_q;
         if (side_effects && id == 4'h2) thre_masked = 1'b1;
         return {4'hC, id};
     endfunction
 
+    // LSR: ``lsr_q``; the read reports OE and the head's errors.
     protected function bit [7:0] lsr_read(bit side_effects);
         bit [7:0] lsr = lsr_q;
         if (side_effects) begin
@@ -196,6 +216,7 @@ class fw_uart16550 extends fw_component;
         return lsr;
     endfunction
 
+    // MSR: ``msr_value()``; the read reports the deltas.
     protected function bit [7:0] msr_read(bit side_effects);
         bit [7:0] msr = msr_value();
         if (side_effects) msr_ack = msr_set;
@@ -211,8 +232,10 @@ class fw_uart16550 extends fw_component;
         return e[10:8];
     endfunction
 
+    // LSR[1], OE: an overrun not yet reported.
     function bit oe(); return oe_set != oe_ack; endfunction
 
+    // LSR now; ``status_proc`` registers it as ``lsr_q``.
     function bit [7:0] lsr_value();
         bit [2:0] he   = head_err();
         bit       thre = txf.empty();
@@ -220,6 +243,7 @@ class fw_uart16550 extends fw_component;
                 he, oe(), !rxf.empty()};
     endfunction
 
+    // MSR: the pads (or MCR's outputs in loopback) and the deltas.
     function bit [7:0] msr_value();
         fw_uart16550_regs__MCR_t mcr = regs.MCR.read();
         bit [3:0] hi = mcr.LOOP ? {mcr.OUT2, mcr.OUT1, mcr.DTR, mcr.RTS} : msr_prev;
@@ -273,6 +297,9 @@ class fw_uart16550 extends fw_component;
 
     // ---- receive ----
 
+    // One character from the receive core (``fw_uart16550_rx_sink``):
+    // ``status`` is {OE, BI, FE, PE}. Pushed with its errors unless the RX
+    // FIFO is full; an overrun (the core's, or a full FIFO) sets OE.
     task rx_recv(input bit [7:0] data, input bit [3:0] status);
         if (rxf.full() || status[3]) begin
             if (oe_set == oe_ack) oe_set = !oe_set;
@@ -298,7 +325,11 @@ class fw_uart16550 extends fw_component;
         forever begin
             bit [4:0] p;
             bit [7:0] d;
-            wait (txf.wr_ptr != txf.rd_ptr);
+            // Polled once a clock, not `wait (txf.wr_ptr != txf.rd_ptr)`: the
+            // lowered process looks once a clock either way, and Verilator
+            // re-evaluates a wait on class members at every evaluation
+            // (docs/design/tlm-view.md).
+            while (txf.wr_ptr == txf.rd_ptr) tick();
             p = txf.rd_ptr;
             d = txf.head();
             tx.t.send(d);

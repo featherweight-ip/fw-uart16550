@@ -464,3 +464,13 @@ FIFO goes into fw-hdl as `fw_fifo` (§3.4), built when the class model
 needs it (step 7). The quirk split of §5 is taken as proposed, as a working
 assumption: a row can still move if a test on `ref` shows the U2B0
 behaviour differs from what the reference pages say.
+
+```{toctree}
+:hidden:
+
+plan
+ref-bench
+fw-impl
+tlm-view
+sphinx-docs
+```

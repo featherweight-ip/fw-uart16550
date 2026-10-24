@@ -51,6 +51,7 @@ class fw_uart16550_base_test extends uvm_test;
 
     // ---- register port ----
 
+    // Write register `idx` (byte address 4 * idx); a bus error fails.
     task reg_write(int idx, bit [7:0] data);
         bit [31:0] rd;
         bit        err;
@@ -58,6 +59,7 @@ class fw_uart16550_base_test extends uvm_test;
         check(!err, $sformatf("write reg %0d <- 0x%02h: bus error", idx, data));
     endtask
 
+    // Read register `idx`; a bus error, or upper bytes not 0, fails.
     task reg_read(int idx, output bit [7:0] data);
         bit [31:0] rd;
         bit        err;
@@ -67,6 +69,7 @@ class fw_uart16550_base_test extends uvm_test;
         data = rd[7:0];
     endtask
 
+    // Read register `idx` and check it against `exp` under `mask`.
     task expect_reg(string what, int idx, bit [7:0] exp, bit [7:0] mask = 8'hFF);
         bit [7:0] d;
         reg_read(idx, d);
@@ -117,6 +120,7 @@ class fw_uart16550_base_test extends uvm_test;
 
     // ---- the VIP's serial side ----
 
+    // Run one item on the tx agent (a character, an error or a break).
     task tx_item(fwvip_uart_char t);
         fw_uart16550_tx_op_seq s = fw_uart16550_tx_op_seq::type_id::create("op");
         s.item = t;
@@ -138,6 +142,7 @@ class fw_uart16550_base_test extends uvm_test;
         end
     endtask
 
+    // Send one character with errors: parity, stop bit, baud offset, glitch.
     task tx_err(bit [7:0] data, bit bad_parity = 0, bit bad_stop = 0, int baud_ppm = 0,
                 int unsigned glitch_at = 0, int unsigned glitch_len = 0);
         fwvip_uart_char t = mk(FWVIP_UART_ERR);
@@ -146,6 +151,7 @@ class fw_uart16550_base_test extends uvm_test;
         tx_item(t);
     endtask
 
+    // Send a break of `n_chars` character times.
     task tx_break(int unsigned n_chars);
         fwvip_uart_char t = mk(FWVIP_UART_BREAK);
         t.n_chars = n_chars;

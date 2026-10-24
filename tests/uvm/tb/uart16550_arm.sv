@@ -1,58 +1,5 @@
-// The bench arm around a 16550 with the pins of the 32-bit WISHBONE shim
-// (src/ref/oc_uart16550_wb32.sv): the U2B0 reference, or fw-uart16550
-// (fw_uart16550_top, in the wb and rtl views). The DUT is instanced by the
-// HDL top and connected to the arm's dut_* ports. Around it:
-//   u_wb      fw-proto-wb initiator transactor: the register port
-//   u_b2b     a WISHBONE driver that makes two accesses with 0 or more idle
-//             clocks between them (U13); owns the bus while it runs
-//   u_tx      fw-proto-uart tx transactor, driving srx
-//   u_rx      fw-proto-uart rx transactor, on stx
-//   u_mon_tx  monitor on stx (the DUT transmits)
-//   u_mon_rx  monitor on srx (the DUT receives)
-//   pads      the modem input pads, an srx override, and the pins the
-//             bench watches (uart_ref_pads_if)
-// uart_ref_model drives it through the transactors' u_if and `pads`.
-//
-// Values the HVL side writes through a virtual interface reach the DUT
-// through a clocked copy (one clock late): a continuous assign from such a
-// variable does not reliably re-trigger in Verilator (fw-proto-uart note).
-
-// The bench's pins on the arm, for the HVL side.
-interface uart_ref_pads_if (input logic clock);
-    // Written by the bench.
-    logic        cts = 1'b0, dsr = 1'b0, ri = 1'b0, dcd = 1'b0;
-    logic        srx_ovr_en = 1'b0;    // srx from srx_ovr, not the tx transactor
-    logic        srx_ovr    = 1'b1;
-    // The back-to-back driver's request (U13): set the fields, then toggle go.
-    logic        b2b_go = 1'b0;
-    logic [4:0]  b2b_adr0, b2b_adr1;
-    logic [7:0]  b2b_dat0, b2b_dat1;
-    logic        b2b_we0, b2b_we1;
-    logic [3:0]  b2b_gap;
-    // Watched by the bench.
-    logic        int_o, stx, srx, rts, dtr;
-    logic        b2b_busy;
-    logic [7:0]  b2b_rd0, b2b_rd1;
-
-    task automatic wait_clocks(int unsigned n);
-        repeat (n) @(posedge clock);
-    endtask
-
-    // Two accesses with `gap` idle clocks between the first ack and the
-    // second strobe. Returns the read data of each.
-    task automatic b2b(input bit we0, input bit [4:0] adr0, input bit [7:0] dat0,
-                       input bit we1, input bit [4:0] adr1, input bit [7:0] dat1,
-                       input bit [3:0] gap, output bit [7:0] rd0, output bit [7:0] rd1);
-        b2b_we0 = we0; b2b_adr0 = adr0; b2b_dat0 = dat0;
-        b2b_we1 = we1; b2b_adr1 = adr1; b2b_dat1 = dat1;
-        b2b_gap = gap;
-        b2b_go  = !b2b_go;
-        repeat (3) @(posedge clock);
-        while (b2b_busy) @(posedge clock);
-        rd0 = b2b_rd0;
-        rd1 = b2b_rd1;
-    endtask
-endinterface
+// The bench arm, uart16550_arm (below), and a back-to-back WISHBONE
+// driver. The pads interface is in uart_ref_pads_if.sv.
 
 // Two WISHBONE classic accesses, the second `gap` clocks after the first's
 // ack (gap 0: the strobe stays up and the address changes in the clock the
@@ -138,6 +85,25 @@ module wb_b2b_driver (
     end
 endmodule
 
+// The bench arm around a 16550 with the pins of the 32-bit WISHBONE shim
+// (``src/ref/oc_uart16550_wb32.sv``): the U2B0 reference, or fw-uart16550
+// (``fw_uart16550_top``, in the wb and rtl views). The DUT is instanced by
+// the HDL top and connected to the arm's ``dut_*`` ports. Around it:
+//
+// - ``u_wb``: fw-proto-wb initiator transactor, the register port
+// - ``u_b2b``: a WISHBONE driver that makes two accesses with 0 or more idle
+//   clocks between them (U13); owns the bus while it runs
+// - ``u_tx``: fw-proto-uart tx transactor, driving srx
+// - ``u_rx``: fw-proto-uart rx transactor, on stx
+// - ``u_mon_tx``: monitor on stx (the DUT transmits)
+// - ``u_mon_rx``: monitor on srx (the DUT receives)
+// - ``pads``: the modem input pads, an srx override, and the pins the bench
+//   watches (``uart_ref_pads_if``)
+//
+// ``uart_ref_model`` drives it through the transactors' ``u_if`` and
+// ``pads``. Values the HVL side writes through a virtual interface reach the
+// DUT through a clocked copy (one clock late): a continuous assign from such
+// a variable does not reliably re-trigger in Verilator (fw-proto-uart note).
 module uart16550_arm (
         input  wire        clock,
         input  wire        reset,

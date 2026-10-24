@@ -38,6 +38,8 @@ package fw_uart16550_spl_rtl_pkg;
         endtask
     endclass
 
+    // fw_uart16550_pins_if on the pins: modem pads, MCR, interrupt, tx busy
+    // and the baud tick.
     class fw_uart16550_pins_export extends fw_export #(fw_uart16550_pins_if) implements fw_uart16550_pins_if;
         virtual fw_uart16550_xtor_if vif;
         function new(string name, fw_component parent, virtual fw_uart16550_xtor_if vif);

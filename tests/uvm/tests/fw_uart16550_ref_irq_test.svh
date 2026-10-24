@@ -1,8 +1,8 @@
 // The RDA interrupt: U21, U20, U7.
 //
 //   U21  the RDA pending flag (and int_o) stays set when the count falls
-//        below the trigger level other than by an RBR read at the level:
-//        (a) an RX FIFO reset, (b) a raised trigger level. IIR, which
+//        below the trigger level other than by an RBR read at the level
+//        (by an RX FIFO reset, or by a raised trigger level). IIR, which
 //        looks at the level, reads 0xC1 meanwhile
 //   U20  an RBR read at the trigger level whose strobe or pop clock meets
 //        a push: the pending flag is cleared and not set again, so int_o

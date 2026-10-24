@@ -65,6 +65,7 @@ class fw_uart16550_ref_base_test extends fw_uart16550_base_test;
     // ---- waits on the probe (each returns at the clock edge after the
     // condition held for a clock) ----
 
+    // Until the receiver's state is `st`.
     task wait_rstate(bit [3:0] st, int unsigned max_clocks = 100000);
         int unsigned n = 0;
         do begin @(probe.clk_ev); n++; end

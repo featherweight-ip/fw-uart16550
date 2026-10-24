@@ -1,5 +1,5 @@
 // The U2B0 reference (OpenCores uart16550 through the 32-bit WISHBONE shim),
-// behind transactors: tests/uvm/tb/oc_uart16550_ref_arm.sv. The top seats
+// behind transactors: the arm, tests/uvm/tb/uart16550_arm.sv. The top seats
 // the register-port transactor interface and the pads interface, and drives
 // irq_changed() from int_o.
 class uart_ref_model extends uart_model_base;

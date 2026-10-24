@@ -18,6 +18,7 @@ package fw_uart16550_tests_pkg;
     `include "fw_uart16550_line_test.svh"
     `include "fw_uart16550_status_test.svh"
     `include "fw_uart16550_irq_test.svh"
+    `include "fw_uart16550_stream_test.svh"
     // Reference confirmation tests, `ref` view only.
     `include "fw_uart16550_ref_base_test.svh"
     `include "fw_uart16550_ref_regs_test.svh"

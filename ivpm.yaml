@@ -93,11 +93,19 @@ package:
       url: https://github.com/edapack/nextpnr-bin
       cache: true
 
-    # Documentation (docs/): Sphinx + MyST.
+    # Documentation (docs/): Sphinx + MyST; the SystemVerilog reference
+    # pages are generated from the sources by sphinx-systemverilog (pyslang).
     - { name: sphinx, src: pypi }
     - { name: myst-parser, src: pypi }
     - { name: furo, src: pypi }
     - { name: sphinx-copybutton, src: pypi }
+    - { name: sphinx-systemverilog, url: https://github.com/fvutils/sphinx-systemverilog.git }
+    # SystemRDL by sphinx-peakrdl, timing diagrams by WaveDrom, FSMs by Mermaid
+    # (as fw-i2c).
+    - { name: peakrdl, src: pypi }
+    - { name: sphinx-peakrdl, src: pypi }
+    - { name: sphinxcontrib-wavedrom, src: pypi, version: ">=3.0.4" }  # 1.x breaks on Sphinx 9
+    - { name: sphinxcontrib-mermaid, src: pypi }
     # NOTE: fw-hdl's dfm plugin (packages/fw-hdl/python) is not at the repo
     # root, so ivpm does not install it. Install it once by hand:
     #   uv pip install --python packages/python/bin/python -e packages/fw-hdl/python

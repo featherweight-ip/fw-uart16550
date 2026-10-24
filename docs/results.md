@@ -36,6 +36,108 @@ debug interface (`UART_HAS_DEBUG`), not all of which is compiled here. fw
 lacks the baud restart on a DL write (U24) and gets the serial framing
 from the kit cores.
 
+## Simulation performance (2026-10-24)
+
+Verilator 5.052 (`--timing`, one thread), the same UVM bench on each view.
+`scripts/sim-perf.py` runs each image's `simv` 3 times per case and takes
+the median wall time. Simulated clocks are read from the `[RESULT]` line's
+time over the 10 ns clock. Marginal speed is the slope from `stream` at 0
+blocks to `stream` at 64 blocks (334,016 clocks), so UVM start-up and
+`init()` are taken out. `fw_uart16550_stream_test` is new for this
+measurement (`+blocks=N` blocks of 16 characters each way, 8N1 at divisor 1;
+`dfm run uvm-perf`). The universal cases are too short to time on their own:
+all but `line` run in under 0.1 s.
+
+| View | What is simulated | Marginal speed (kclk/s) | µs per clock | `stream` 64 blocks (s) | 5 universal cases (s) | Wall time against `rtl` |
+|---|---|---|---|---|---|---|
+| `rtl` | fw-uart16550's lowered netlist | 241–244 | 4.1 | 1.38–1.39 | 0.63 | 1.00 |
+| `ref` | U2B0 behind the 32-bit shim | 235 | 4.25 | 1.42–1.44 | 0.66 | 1.03 |
+| `wb` | the fw class model behind the kit's pin cores | 141–145 | 7.0 | 2.31–2.37 | 1.05–1.40 | 1.68–1.72 |
+| `tlm` | the fw class model through its method ports, no pins (added later the same day, separate runs) | 214–227 | 4.4–4.7 | 1.48–1.57 | 0.69 | 1.01–1.08 |
+
+There are four runs at light load (load average 15–35 on 32 cores). The
+`wb` row's range is real: `line` on `wb` took 0.88–1.23 s across runs,
+while `rtl` and `ref` stayed within 2%. In a fifth run, at load average
+about 300, `wb` dropped to 90 kclk/s; `rtl` and `ref` did not move.
+
+- **The class model simulates at 0.59× the speed of its own lowered
+  netlist.** Every view runs the same bench: the UVM env, the fwvip-uart
+  agents on the serial pins and the WB initiator on the bus. The bench
+  costs at most the 4.1 µs per clock of `rtl`. The class model costs about
+  2.9 µs per clock more than its netlist. `wb` is the model's processes as
+  Verilator coroutines (each process waits on the clock domain every
+  clock), plus the kit cores and the WB target transactor; `rtl` is one
+  evaluated module. No profile was taken to split that 2.9 µs further.
+- **The lowered netlist is as fast as U2B0** (+3%). It is also smaller
+  (760 against 826 LUT4).
+- fw-i2c measured the same thing (its bench-plan E10): `wb` at 1.36× `ref`
+  and `tlm` at 0.65× `ref`. Here `wb` is at 1.63× `ref` on `stream`.
+
+**The `tlm` view** (docs/design/tlm-view.md) runs the bench against the
+model's method ports: register accesses call the host export through a port,
+characters are method calls on a TLM line, and there is no DUT RTL. It is
+1.45× as fast as `wb`, but no faster than `rtl`. A `perf` profile of
+`stream` shows why: the time is in Verilator's `--timing` scheduler, not in
+the model's logic.
+
+- `eval_triggers` takes 55% of the time. That is mostly the dynamic-trigger
+  scheduler re-evaluating `wait (expr)` on class members at every
+  evaluation, with a `shared_ptr` copy each time.
+- UVM's `uvm_objection::wait_for` alone is about 20%, and it is in every
+  view.
+- The model's own share: `status_proc`, which resumes every clock (it is
+  the form that lowers to RTL), about 10%; `tx_proc`'s `wait` on the FIFO
+  pointers, a dynamic trigger, about 4%.
+  `tx_proc` now polls the FIFO once a clock instead (a `wait (expr)`, a
+  semaphore and a mailbox all cost about 3.5× a per-clock check in
+  Verilator; docs/design/tlm-view.md): `tlm` 218 to 234 kclk/s, level with
+  `rtl` (237), area and Fmax unchanged within noise.
+- `tick(n)` resumes on each of its n edges (`repeat (n) @(posedge clock)`
+  in fw-hdl's and fwvip-core's clock interfaces). A local experiment that
+  jumps over all but the last edge gave +11%; it was reverted (fw-hdl's
+  lowering cannot parse it).
+
+**Build.** Each image is about 8 s to verilate and 27 s to compile the
+C++. The figures were similar across views: verilate 8.0–8.6 s and C++
+26.7–28.1 s (`sim-perf.py --build`, `make -j 8`, under load). `rtl`'s build
+does not include the lowering. A regression's wall time is the builds, not
+the simulations: the 15 universal runs together take about 2.3 s.
+
+### The `tlm` view (not built)
+
+The comparison asked for is the class model with no pins against the RTL.
+The bench cannot run that yet. `wb` is the nearest view, and it still has
+the kit's pin cores and the bus transactor. The design planned a `tlm`
+view (design §6.1, plan K7, as fw-i2c's `tlm`). What it needs:
+
+- **fw-proto-uart K7, `uart_tlm_link`.** This is a class with the kit's
+  APIs on both ends and no transactors. The model's `tx` port sends a
+  character; the link holds it for one character time (from the
+  `uart_config_if` framing and divisor), then delivers it to the VIP's rx
+  side and the monitors. The reverse direction feeds the model's rx sink,
+  with status. It must cover break (`set_break`), the error injection of
+  `uart_tx_inject_if` (bad parity and stop map to status bits; a glitch or
+  a baud offset have no TLM meaning, so the `status` cases that use them are
+  `wb`/`rtl`-only), loopback (MCR LOOP routes tx to rx), and `tx_busy`.
+  Expect about 200 lines plus a back-to-back test.
+- **A baud tick at TLM.** The model's timeout counter reads
+  `pins.baud_tick()` each clock. The view needs a divider class, or the
+  link provides the tick.
+- **The view package and tops**, as fw-i2c's `fw_i2c_tlm_view_pkg` (91
+  lines) with `hdl_top_spl` and `hvl_top_spl` (37 lines):
+  - a `uart_model_base` whose `rf_if()` is the model's own `host` export,
+    so register accesses are direct calls with no WB transactor;
+  - `fw_uart16550_pins_if` implemented in the class, for modem pads, MCR,
+    irq to the seam, `tx_busy` and the tick;
+  - the fwvip-uart agents bound to the link instead of the pin transactors.
+    Their configs already implement the kit APIs (`fwvip_uart_tx_config
+    implements uart_tx_if, uart_tx_inject_if, uart_config_if`), so this is a
+    TLM config subclass, not a VIP change.
+- **Flow:** a `view-src-tlm`, and `tlm` added to the `images` values.
+
+Once it runs, `scripts/sim-perf.py --views tlm,wb,rtl,ref` gives the table
+above with the `tlm` row.
+
 ## First area: fw-uart16550 against U2B0 (2026-10-24)
 
 The first lowerable fw-uart16550 ({doc}`design/fw-impl`), lowered with the

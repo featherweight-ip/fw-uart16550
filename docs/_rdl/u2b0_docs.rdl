@@ -1,0 +1,10 @@
+// The docs' one RDL root (sphinx-peakrdl elaborates a single top): the two
+// U2B0 maps of src/rdl/u2b0_uart16550.rdl side by side. The 0x100 offset
+// only keeps them apart here; on the bus both banks are at 0 (LCR.DLAB
+// picks one).
+`include "u2b0_uart16550.rdl"
+
+addrmap u2b0_docs {
+    u2b0_uart16550      u2b0_uart16550      @ 0x0;
+    u2b0_uart16550_dlab u2b0_uart16550_dlab @ 0x100;
+};
