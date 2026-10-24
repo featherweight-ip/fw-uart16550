@@ -115,3 +115,30 @@ kit-only `uart_tlm_link` in fw-proto-uart (K7) can take its core later.
   - Area and Fmax within noise: 764 LUT4, 552 FF, 39.2–41.0 MHz on 6 seeds
     (from 760, 553, 39.5–41.7).
   - All universal tests pass on tlm, wb and rtl.
+- **Other simulators** (2026-10-24; `scripts/repro/wait_styles.sh`). The
+  same microbenchmark, all three simulators in one run at light load (load
+  average 5–11). Extra time over each simulator's own baseline (no
+  waiter):
+
+  | Wait | Verilator 5.052 | xsim 2023.1 | xezim 0.11.3 |
+  |---|---|---|---|
+  | baseline, 2 M clocks | 0.82 s | 2.43 s | 0.60 s |
+  | `wait (expr)` | +0.19 | 0 | **+25.3** |
+  | `semaphore` | +0.12 | +0.01 | +0.02 |
+  | `mailbox` | +0.16 | +0.01 | +0.01 |
+  | `@(event)` | 0 | 0 | 0 |
+  | a check every clock | +0.02 | +0.04 | +5.2 |
+
+  The single-simulator Verilator table above was taken at heavier load;
+  the order of the styles is the same.
+
+  - The cost is a property of the simulator, not of SystemVerilog.
+  - xsim doesn't care how a process waits.
+  - xezim makes `wait (expr)` cost about 40× its baseline, and makes a
+    per-clock check expensive too. Its semaphore, mailbox and event are
+    free.
+  - Polling (the `tx_proc` change) is never the worst choice: it is the
+    best that lowers for Verilator and xezim (on xezim it is 5× cheaper
+    than `wait (expr)`), and neutral on xsim.
+  - Not tried: Questa, Xcelium, VCS, DSim (not installed). The full suite on
+    xsim (`hdlsim.xsm`) and xezim (`hdlsim.xzm`) is next.

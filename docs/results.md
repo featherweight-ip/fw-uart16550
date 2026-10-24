@@ -89,7 +89,7 @@ the model's logic.
   the form that lowers to RTL), about 10%; `tx_proc`'s `wait` on the FIFO
   pointers, a dynamic trigger, about 4%.
   `tx_proc` now polls the FIFO once a clock instead (a `wait (expr)`, a
-  semaphore and a mailbox all cost about 3.5× a per-clock check in
+  semaphore and a mailbox all cost several times a per-clock check in
   Verilator; docs/design/tlm-view.md): `tlm` 218 to 234 kclk/s, level with
   `rtl` (237), area and Fmax unchanged within noise.
 - `tick(n)` resumes on each of its n edges (`repeat (n) @(posedge clock)`
