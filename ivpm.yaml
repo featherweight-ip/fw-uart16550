@@ -27,8 +27,7 @@ package:
 
   # Building, verifying, lowering, synthesizing and documenting the IP.
   # Step 4 (docs/design/ref-bench.md): the reference, the VIP and the flow.
-  # The op-model (pssc, peakrdl-pss) comes in step 5, the register tools in
-  # step 6.
+  # The op-model (pssc, peakrdl-pss) comes in step 5.
   - name: dev
     description: The use set plus the reference core, VIP, tools and Sphinx.
     uses: [use]
@@ -49,6 +48,14 @@ package:
     - name: fwvip-uart
       url: https://github.com/featherweight-vip/fwvip-uart.git
       dep-set: use
+
+    # Registers (step 6): SystemRDL -> fw-hdl register block.
+    - name: peakrdl-fw-hdl
+      url: https://git.dvkit.org/featherweight-hdl/peakrdl-fw-hdl.git
+      dep-set: default-dev
+    - name: dv-flow-librdl
+      url: https://git.dvkit.org/dv-flow/dv-flow-librdl.git
+      dep-set: default-dev
 
     # Flow
     - name: dv-flow-mgr

@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=https://dv-flow.github.io/flow.dv.schema.json
+#
+# fw-uart16550 behind pins.
+#   spl-rtl   fw_uart16550_top, with the pins of the U2B0 shim, around the
+#             class model (`spl`). For simulation (the `wb` view).
+#   lowered   the same design lowered to a Verilog netlist (module
+#             fw_uart16550_top, same pins).
+#   rtl       the lowered netlist: the design sources of the `rtl` view. The
+#             lowering absorbs the kit cores and the synchronizer, so it is
+#             one flat module.
+fragment:
+  tasks:
+  - name: fw-uart16550-leaf
+    uses: std.FileSet
+    with:
+      type: systemVerilogSource
+      include:
+      - fw_uart16550_sync.sv
+
+  - name: fw-uart16550-rtl-common
+    uses: std.FileSet
+    needs: [spl, fw-uart16550-leaf]
+    with:
+      type: systemVerilogSource
+      include:
+      - fw_uart16550_xtor_if.sv
+      - fw_uart16550_spl_rtl_pkg.sv
+
+  - name: fw-uart16550-top
+    uses: std.FileSet
+    needs: [fw-uart16550-rtl-common]
+    with:
+      type: systemVerilogSource
+      include:
+      - fw_uart16550_top.sv
+
+  - export: spl-rtl
+    uses: std.FileSet
+    needs: [fw-uart16550-top]
+
+  - export: lowered
+    uses: fw.hdl.lower.Lower
+    needs: [fw-uart16550-top]
+    with:
+      top: fw_uart16550_top
+      module: fw_uart16550_top
+      # each process as clocked blocks in its source's structure
+      options: emit=structured
+
+  - export: rtl
+    uses: std.FileSet
+    needs: [lowered]

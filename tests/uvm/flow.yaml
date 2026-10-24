@@ -18,8 +18,11 @@ fragment:
     - org.fwvip.core.clock-reset-xtor
     - "flags-comp-${{ build }}"
 
-  # Each view's design sources. `ref` is U2B0 behind the 32-bit shim.
+  # Each view's design sources. `ref` is U2B0 behind the 32-bit shim; `wb`
+  # is fw-uart16550's class model behind pins; `rtl` is its lowered netlist.
   - { name: view-src-ref, passthrough: all, consumes: none, needs: [ref-rtl] }
+  - { name: view-src-wb,  passthrough: all, consumes: none, needs: [spl-rtl] }
+  - { name: view-src-rtl, passthrough: all, consumes: none, needs: [rtl] }
 
   - root: sim-img
     desc: Simulation image for one view
@@ -28,12 +31,12 @@ fragment:
         type: str
         value: ref
         cli: true
-        values: [ref]
+        values: [ref, wb, rtl]
         doc: View to build
     strategy:
       select:
         axes:
-          view: [ref]
+          view: [ref, wb, rtl]
         default: {view: "${{ view }}"}
       body:
       - uses: project.dv.uvm.utils.tb-img
@@ -52,7 +55,11 @@ fragment:
       matrix:
         image: "${{ images }}"
         case:
-        - { name: smoke, testname: fw_uart16550_smoke_test, plusargs: [] }
+        - { name: smoke,  testname: fw_uart16550_smoke_test,  plusargs: [] }
+        - { name: regs,   testname: fw_uart16550_regs_test,   plusargs: [] }
+        - { name: line,   testname: fw_uart16550_line_test,   plusargs: [] }
+        - { name: status, testname: fw_uart16550_status_test, plusargs: [] }
+        - { name: irq,    testname: fw_uart16550_irq_test,    plusargs: [] }
     body:
     - name: "${{ this.image }}-${{ this.case.name }}"
       uses: hdlsim.vlt.SimUVMCase

@@ -14,6 +14,10 @@ package fw_uart16550_tests_pkg;
     `include "fw_uart16550_tx_op_seq.svh"
     `include "fw_uart16550_base_test.svh"
     `include "fw_uart16550_smoke_test.svh"
+    `include "fw_uart16550_regs_test.svh"
+    `include "fw_uart16550_line_test.svh"
+    `include "fw_uart16550_status_test.svh"
+    `include "fw_uart16550_irq_test.svh"
     // Reference confirmation tests, `ref` view only.
     `include "fw_uart16550_ref_base_test.svh"
     `include "fw_uart16550_ref_regs_test.svh"

@@ -3,8 +3,9 @@
 ```{admonition} Status
 :class: note
 Written 2026-10-21 (plan step 1); open issues answered the same day
-({ref}`open-issues`). None of this is implemented yet.
-Plan, status and step order: {doc}`plan`.
+({ref}`open-issues`). A first implementation is in place (2026-10-24):
+{doc}`fw-impl` (what was built and how it differs from this page),
+{doc}`../results` (area). Plan, status and step order: {doc}`plan`.
 ```
 
 ```{admonition} Decisions so far

@@ -1,5 +1,7 @@
-// The U2B0 reference arm: the OpenCores uart16550 core through the 32-bit
-// WISHBONE shim (src/ref/oc_uart16550_wb32.sv), and around it:
+// The bench arm around a 16550 with the pins of the 32-bit WISHBONE shim
+// (src/ref/oc_uart16550_wb32.sv): the U2B0 reference, or fw-uart16550
+// (fw_uart16550_top, in the wb and rtl views). The DUT is instanced by the
+// HDL top and connected to the arm's dut_* ports. Around it:
 //   u_wb      fw-proto-wb initiator transactor: the register port
 //   u_b2b     a WISHBONE driver that makes two accesses with 0 or more idle
 //             clocks between them (U13); owns the bus while it runs
@@ -9,10 +11,9 @@
 //   u_mon_rx  monitor on srx (the DUT receives)
 //   pads      the modem input pads, an srx override, and the pins the
 //             bench watches (uart_ref_pads_if)
-// Instanced by hdl_top_ref, and later by the equivalence tops. uart_ref_model
-// drives it through the transactors' u_if and `pads`.
+// uart_ref_model drives it through the transactors' u_if and `pads`.
 //
-// Values the HVL side writes through a virtual interface reach the core
+// Values the HVL side writes through a virtual interface reach the DUT
 // through a clocked copy (one clock late): a continuous assign from such a
 // variable does not reliably re-trigger in Verilator (fw-proto-uart note).
 
@@ -137,9 +138,24 @@ module wb_b2b_driver (
     end
 endmodule
 
-module oc_uart16550_ref_arm (
-        input  wire clock,
-        input  wire reset
+module uart16550_arm (
+        input  wire        clock,
+        input  wire        reset,
+        // to the DUT
+        output wire [4:0]  dut_adr,
+        output wire [31:0] dut_dat_w,
+        input  wire [31:0] dut_dat_r,
+        output wire        dut_we,
+        output wire        dut_stb,
+        output wire        dut_cyc,
+        input  wire        dut_ack,
+        input  wire        dut_err,
+        input  wire        dut_int,
+        output wire        dut_srx,
+        input  wire        dut_stx,
+        input  wire        dut_rts,
+        input  wire        dut_dtr,
+        output wire [3:0]  dut_modem      // {cts, dsr, ri, dcd}
     );
     uart_ref_pads_if pads (.clock(clock));
 
@@ -188,15 +204,20 @@ module oc_uart16550_ref_arm (
     wire tx_line, stx, srx, rts, dtr, int_o;
     assign srx = srx_ovr_en_q ? srx_ovr_q : tx_line;
 
-    oc_uart16550_wb32 u_dut (
-        .wb_clk_i(clock), .wb_rst_i(reset),
-        .wb_adr_i(adr), .wb_dat_i(dat_w), .wb_dat_o(dat_r),
-        .wb_sel_i(4'hF), .wb_we_i(we), .wb_stb_i(stb), .wb_cyc_i(cyc),
-        .wb_ack_o(ack), .wb_err_o(err), .int_o(int_o),
-        .srx_pad_i(srx), .stx_pad_o(stx),
-        .rts_pad_o(rts), .cts_pad_i(modem_q[3]),
-        .dtr_pad_o(dtr), .dsr_pad_i(modem_q[2]),
-        .ri_pad_i(modem_q[1]), .dcd_pad_i(modem_q[0]));
+    assign dut_adr   = adr;
+    assign dut_dat_w = dat_w;
+    assign dat_r     = dut_dat_r;
+    assign dut_we    = we;
+    assign dut_stb   = stb;
+    assign dut_cyc   = cyc;
+    assign ack       = dut_ack;
+    assign err       = dut_err;
+    assign int_o     = dut_int;
+    assign dut_srx   = srx;
+    assign stx       = dut_stx;
+    assign rts       = dut_rts;
+    assign dtr       = dut_dtr;
+    assign dut_modem = modem_q;
 
     assign pads.int_o = int_o;
     assign pads.stx   = stx;

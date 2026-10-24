@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://dv-flow.github.io/flow.dv.schema.json
+#
+# The fw-uart16550 class model: one SystemVerilog package over the generated
+# register blocks and the protocol kits. `needs` order is compile order.
+fragment:
+  tasks:
+  - name: fw-uart16550-spl-pkg
+    uses: std.FileSet
+    needs:
+    - fw-hdl.hdl.sv-src
+    - fw.proto.wb.files
+    - fw.proto.uart.files
+    - reg-model
+    with:
+      type: systemVerilogSource
+      include:
+      - fw_uart16550_spl_pkg.sv
+      incdirs:
+      - .
+
+  - export: spl
+    uses: std.FileSet
+    needs: [fw-uart16550-spl-pkg]

@@ -5,8 +5,9 @@
 #   dfm run lint-rtl   Verilator lint of the RTL (reference core + shim, and
 #                      the core in its 32-bit configuration).
 #
-# Views (plan §5): step 4 has `ref` only (docs/design/ref-bench.md). The
-# others are added as the plan in docs/design/plan.md proceeds.
+# Views (plan §5): `ref` (U2B0, docs/design/ref-bench.md), `wb` (the class
+# model behind pins) and `rtl` (its lowered netlist; docs/design/fw-impl.md).
+# The equivalence views come with the op-model (step 5).
 package:
   name: org.fwip.uart16550
 
@@ -18,18 +19,22 @@ package:
   with:
     images:
       type: list
-      value: [ref]
-      values: [ref]
+      value: [ref, wb]
+      values: [ref, wb, rtl]
       cli: true
       desc: Views the universal tests run on (plan §5)
     view_tb:
       type: map
       value:
-        ref: [oc_uart16550_ref_arm.sv, hdl_top_ref.sv, hvl_top_ref.sv]
+        ref: [uart16550_arm.sv, hdl_top_ref.sv, hvl_top_ref.sv]
+        wb:  [uart16550_arm.sv, hdl_top_wb.sv, hvl_top_wb.sv]
+        rtl: [uart16550_arm.sv, hdl_top_wb.sv, hvl_top_wb.sv]
     view_top:
       type: map
       value:
         ref: [hvl_top_ref]
+        wb:  [hvl_top_wb]
+        rtl: [hvl_top_wb]
 
   imports:
   - project.dv.uvm
@@ -38,11 +43,16 @@ package:
   - fw.proto.wb
   - fw.proto.uart
   - fw-hdl
+  - fw.hdl.lower
+  - rdl
   - org.fwvip.core
   - org.fwvip.uart
 
   fragments:
+  - src/rdl/flow.yaml
   - src/ref/flow.yaml
+  - src/spl/flow.yaml
+  - src/spl-rtl/flow.yaml
   - tests/uvm/flow.yaml
 
   tasks:

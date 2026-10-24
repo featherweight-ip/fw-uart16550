@@ -3,9 +3,10 @@
 # The as-built register map of the reference, U2B0 (u2b0_uart16550.rdl: the
 # registers in u2b0_regs.rdl on a 1-byte stride, in two address maps for the
 # two LCR.DLAB banks). It documents the reference (docs/reference/registers.md)
-# and is the starting point for fw-uart16550's own map. That map
-# (fw_uart16550_regs.rdl) and the fw-hdl and PSS models generated from it are
-# added in step 6.
+# and is the base of fw-uart16550's own map, fw_uart16550_regs.rdl: the same
+# registers on a 4-byte stride, also in two maps, and the fw-hdl register
+# blocks generated from them (step 6). The PSS model comes with the op-model
+# (step 5).
 fragment:
   tasks:
   # Only the top wrapper: u2b0_regs.rdl is included by it, and is not a
@@ -16,3 +17,39 @@ fragment:
       type: systemRDLSource
       include:
       - u2b0_uart16550.rdl
+
+  - name: fw-rdl-src
+    uses: std.FileSet
+    with:
+      type: systemRDLSource
+      include:
+      - fw_uart16550_regs.rdl
+
+  # The DLAB = 0 view and the DLAB = 1 bank, one package each. peakrdl warns
+  # FWH-SIDEEFFECT for RBR, THR, IIR.IID and DLL: the model's access() does
+  # those (design §4, R3).
+  - name: reg-model-main
+    uses: rdl.Export
+    needs: [fw-rdl-src]
+    with:
+      format: fw-hdl
+      top: fw_uart16550_regs
+      filename: fw_uart16550_reg_pkg.sv
+      options:
+        package-name: fw_uart16550_reg_pkg
+        type-style: lexical
+
+  - name: reg-model-dlab
+    uses: rdl.Export
+    needs: [fw-rdl-src]
+    with:
+      format: fw-hdl
+      top: fw_uart16550_dlab_regs
+      filename: fw_uart16550_dlab_reg_pkg.sv
+      options:
+        package-name: fw_uart16550_dlab_reg_pkg
+        type-style: lexical
+
+  - export: reg-model
+    uses: std.FileSet
+    needs: [reg-model-main, reg-model-dlab]

@@ -1,0 +1,43 @@
+// Register map of fw-uart16550: the U2B0 registers (u2b0_regs.rdl) on a
+// 4-byte stride, which is what the reference arm's 32-bit WISHBONE shim
+// (src/ref/oc_uart16550_wb32.sv) presents. Registers are 32 bits wide with
+// bits [7:0] implemented; bits [31:8] read 0 and ignore writes. See
+// docs/design/index.md section 4.
+//
+// Two maps, as u2b0_uart16550.rdl: the LCR.DLAB = 0 view (offsets 0x00 to
+// 0x1C) and the DLAB = 1 bank (DLL at 0x00, DLM at 0x04). The model decodes
+// DLAB in its access() (design R2) and reads the status registers (RBR, IIR,
+// LSR, MSR) through read providers, with their side effects in access()
+// (design R3).
+
+addrmap fw_uart16550_regs {
+    name = "fw-uart16550, LCR.DLAB = 0";
+    desc = "Register map of fw-uart16550: the U2B0 registers, one per
+32-bit word, bits [7:0] implemented, LCR.DLAB = 0.";
+
+    default regwidth = 32;
+    default accesswidth = 32;
+    default sw = rw;
+    default hw = r;
+
+    `define U2B0_STRIDE 4
+    `include "u2b0_regs.rdl"
+    `undef U2B0_STRIDE
+};
+
+addrmap fw_uart16550_dlab_regs {
+    name = "fw-uart16550, LCR.DLAB = 1";
+    desc = "The divisor latch bank of fw-uart16550: DLL and DLM at 0x00 and
+0x04 while LCR.DLAB = 1.";
+
+    default regwidth = 32;
+    default accesswidth = 32;
+    default sw = rw;
+    default hw = r;
+
+    `define U2B0_STRIDE 4
+    `define U2B0_DLAB
+    `include "u2b0_regs.rdl"
+    `undef U2B0_DLAB
+    `undef U2B0_STRIDE
+};
