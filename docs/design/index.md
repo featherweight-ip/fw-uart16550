@@ -472,5 +472,6 @@ plan
 ref-bench
 fw-impl
 tlm-view
+next-design
 sphinx-docs
 ```
