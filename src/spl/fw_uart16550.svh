@@ -325,11 +325,11 @@ class fw_uart16550 extends fw_component;
         forever begin
             bit [4:0] p;
             bit [7:0] d;
-            // Polled once a clock, not `wait (txf.wr_ptr != txf.rd_ptr)`: the
-            // lowered process looks once a clock either way, and Verilator
-            // re-evaluates a wait on class members at every evaluation
-            // (docs/design/tlm-view.md).
-            while (txf.wr_ptr == txf.rd_ptr) tick();
+            // A wait, not a poll each clock: Verilator with efficient waits
+            // parks it until a write to txf's pointers
+            // (docs/design/tlm-view.md). A semaphore or mailbox would not
+            // lower: the lowering takes only tick, put and wait beats.
+            wait (txf.wr_ptr != txf.rd_ptr);
             p = txf.rd_ptr;
             d = txf.head();
             tx.t.send(d);
