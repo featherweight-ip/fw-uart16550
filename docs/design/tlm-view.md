@@ -90,12 +90,13 @@ kit-only `uart_tlm_link` in fw-proto-uart (K7) can take its core later.
   the model is clock-driven and Verilator's `--timing` scheduler dominates.
   - `status_proc` resumes on every clock.
   - `tx_proc`'s `wait (txf.wr_ptr != txf.rd_ptr)` is a dynamic trigger
-    that is re-evaluated at every evaluation.
+    that stock Verilator re-evaluates at every evaluation (the
+    efficient-waits branch parks it; see below).
   - UVM's own `uvm_objection::wait_for` costs about 20% in every view.
   - `tick(n)` resumes on every one of its n edges. Jumping over them (a
     local experiment in fw-hdl's and fwvip-core's clock interfaces,
     reverted) gave +11%.
-- **`tx_proc` polls instead of `wait (expr)`** (2026-10-24). Measured in a
+- **`tx_proc`: poll or `wait (expr)`** (2026-10-24, 2026-10-27). Measured in a
   Verilator 5.052 microbenchmark: one waiter, 2 M clocks, woken every 100
   clocks, against a 1.38 s baseline. Extra time by how it waits:
 
@@ -112,6 +113,12 @@ kit-only `uart_tlm_link` in fw-proto-uart (K7) can take its core later.
   process. So the model now polls the TX FIFO once a clock
   (`while (empty) tick()`), which is what the lowered process does anyway.
   - `tlm`: 218 to 234 kclk/s. `wb`: +2%.
+  - Reverted to `wait (txf.wr_ptr != txf.rd_ptr)` (2026-10-27). A Verilator
+    with efficient waits (branch `wpk/verilator-efficient-waits`) parks it
+    on `txf`'s wait queue, woken by writes to `wr_ptr`/`rd_ptr`, so it is
+    no longer re-evaluated. `tlm` marginal kclk/s (`sim-perf.py --reps
+    3`): stock 5.052 poll 225.6, wait 220.1 (the wait costs 2%); efficient
+    waits poll 465.0, wait 468.6 and 473.4.
   - Area and Fmax within noise: 764 LUT4, 552 FF, 39.2–41.0 MHz on 6 seeds
     (from 760, 553, 39.5–41.7).
   - All universal tests pass on tlm, wb and rtl.

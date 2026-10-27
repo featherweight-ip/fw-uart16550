@@ -92,6 +92,11 @@ the model's logic.
   semaphore and a mailbox all cost several times a per-clock check in
   Verilator; docs/design/tlm-view.md): `tlm` 218 to 234 kclk/s, level with
   `rtl` (237), area and Fmax unchanged within noise.
+  It is back to `wait (txf.wr_ptr != txf.rd_ptr)` (2026-10-27) for a
+  Verilator with efficient waits (branch `wpk/verilator-efficient-waits`),
+  which parks it on `txf`'s wait queue until a write to the pointers.
+  `tlm` marginal kclk/s (`sim-perf.py --reps 3`): 5.052 poll 225.6, 5.052
+  wait 220.1; efficient waits poll 465.0, wait 468.6 and 473.4.
 - `tick(n)` resumes on each of its n edges (`repeat (n) @(posedge clock)`
   in fw-hdl's and fwvip-core's clock interfaces). A local experiment that
   jumps over all but the last edge gave +11%; it was reverted (fw-hdl's
